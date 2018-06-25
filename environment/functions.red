@@ -959,7 +959,7 @@ atan: func [
 ]
 
 atan2: func [
-	"Returns the arctangent of y/x (in radians)"
+	"Returns the smallest angle between the X axis and the vector (x,y) (-pi to pi)"
 	y		[number!]
 	x		[number!]
 	return:	[float!]
