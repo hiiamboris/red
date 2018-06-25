@@ -539,7 +539,7 @@ arctangent: make native! [[
 	#get-definition NAT_ARCTANGENT
 ]
 arctangent2: make native! [[
-		"Returns the arctangent of y divided by x (in radians)"
+		"Returns the smallest angle between the X axis and the point (x,y) (-pi to pi)"
 		y       [number!]
 		x       [number!]
 		return: [float!]
