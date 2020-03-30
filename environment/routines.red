@@ -10,6 +10,8 @@ Red [
 	}
 ]
 
+#include %red-view-test-system/routines.red
+
 quit-return: routine [
 	"Stops evaluation and exits the program with a given status"
 	status [integer!] "Process termination value to return"
