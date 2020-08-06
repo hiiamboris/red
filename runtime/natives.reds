@@ -2989,9 +2989,12 @@ natives: context [
 	][
 		fl: as red-float! stack/arguments
 		if TYPE_OF(fl) <> TYPE_FLOAT [
+			assert any [TYPE_OF(fl) = TYPE_INTEGER  TYPE_OF(fl) = TYPE_PERCENT]
+			if TYPE_OF(fl) = TYPE_INTEGER [
+				int: as red-integer! fl
+				fl/value: as-float int/value
+			]
 			fl/header: TYPE_FLOAT
-			int: as red-integer! fl
-			fl/value: as-float int/value
 		]
 		fl
 	]
