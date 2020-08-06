@@ -2796,6 +2796,34 @@ b}
 		--assert not error? try [3151391351465.995 // 1.0]
 		unset 'true?
 
+	--test-- "#2586"
+		do [	;@@ FIXME: compiler should catch spec violations too
+			--assert error? try [atan 10%]
+			--assert error? try [arctangent 10%]
+			--assert error? try [atan2 10% 10%]
+			--assert error? try [arctangent2 10% 10%]
+			--assert error? try [atan2 10% 0.1]
+			--assert error? try [arctangent2 10% 0.1]
+			--assert error? try [atan2 0.1 10%]
+			--assert error? try [arctangent2 0.1 10%]
+			--assert error? try [asin 10%]
+			--assert error? try [arcsine 10%]
+			--assert error? try [acos 10%]
+			--assert error? try [arccosine 10%]
+			--assert error? try [tan 10%]
+			--assert error? try [tangent 10%]
+			--assert error? try [sin 10%]
+			--assert error? try [sine 10%]
+			--assert error? try [cos 10%]
+			--assert error? try [cosine 10%]
+			--assert error? try [exp 10%]
+			--assert error? try [log-e 10%]
+			--assert error? try [log-10 10%]
+			--assert error? try [log-2 10%]
+			--assert 10% = sqrt 1%
+			--assert 10% = square-root 1%
+		]
+
 	--test-- "#3603"
 		bu3603: reduce [()]
 		rest3603: none
