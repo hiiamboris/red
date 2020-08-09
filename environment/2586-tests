@@ -1,0 +1,25 @@
+tests
+
+make "" 1.5
+form/part s 1.5
+mold/part s 1.5
+at s 1.5
+change/part/dup s t 1.5 2.5
+copy/part s 1.5
+find/part/skip s x 1.5 2.5
+select/part/skip s x 1.5 2.5
+insert/part/dup s x 1.5 2.5
+append/part/dup s x 1.5 2.5
+move/part s t 1.5
+pick "abc" 1.5
+poke "abc" 1.5 x
+remove/part s 1.5
+reverse/part s 1.5
+sort/part/skip/compare s 1.5 3.5 2.5
+skip s 1.5
+take/part s 1.5
+read/seek/part s 1.5 2.5
+write/seek/part s x 1.5 2.5
+
+extract/index s 2.5 1.5
+
