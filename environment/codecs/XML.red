@@ -210,10 +210,6 @@ xml: context [
 	|	sq any [att-schars | reference] sq
 	]
 	SystemLiteral: [
-		dq any [#"^^" | dq] dq
-	|	sq any [#"^^" | sq] sq
-	]
-	SystemLiteral: [
 		dq thru dq
 	|	sq thru sq
 	]
@@ -251,14 +247,6 @@ xml: context [
 	]
 
 	; -- Processing Instructions
-	PI: [
-		"<?"
-		PITarget
-		opt [
-			S+ not [any Char "?>" any Char] any Char
-		]
-		"?>"
-	]
 	PI: [
 		"<?" copy att-name PITarget S+ copy value to "?>"
 		2 skip
