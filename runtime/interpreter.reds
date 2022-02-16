@@ -954,9 +954,8 @@ interpreter: context [
 					TYPE_ROUTINE
 					TYPE_FUNCTION [
 						pc: eval-code parent pc end code sub? path item gparent
-						if TYPE_OF(item) = TYPE_PAREN [copy-cell stack/top - 1 stack/top - 2]
-						unless sub? [stack/set-last stack/top]
-						return pc
+						parent: stack/get-top
+						item: tail						;-- force loop exit
 					]
 					default [0]
 				]
@@ -1080,6 +1079,7 @@ interpreter: context [
 			start  [red-value!]
 			w	   [red-word!]
 			op	   [red-value!]
+			near   [red-block!]
 			sym	   [integer!]
 			infix? [logic!]
 			lit?   [logic!]
@@ -1091,6 +1091,15 @@ interpreter: context [
 		infix?: no
 		start: pc
 		top?: not sub?
+		
+		if code <> null [
+			near: as red-block! #get system/state/near	;-- keep the Near: field updated
+			near/header: TYPE_BLOCK
+			near/head:   (as-integer pc - block/rs-head code) >> 4
+			near/node:   code/node
+			near/extra:   0
+		]
+		
 		unless prefix? [
 			next: as red-word! pc + 1
 			CHECK_INFIX

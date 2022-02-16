@@ -96,7 +96,7 @@ natives: context [
 			type  [integer!]
 	][
 		#typecheck any
-		blk: as red-block! stack/arguments
+		blk: as red-block! stack/push stack/arguments
 		value: block/rs-head blk
 		tail:  block/rs-tail blk
 		
@@ -118,7 +118,7 @@ natives: context [
 			tail  [red-value!]
 	][
 		#typecheck all
-		blk: as red-block! stack/arguments
+		blk: as red-block! stack/push stack/arguments
 		value: block/rs-head blk
 		tail:  block/rs-tail blk
 		
@@ -519,7 +519,7 @@ natives: context [
 			true? [logic!]
 	][
 		#typecheck [case all?]
-		blk: as red-block! stack/arguments
+		blk: as red-block! stack/push stack/arguments
 		value: block/rs-head blk
 		tail:  block/rs-tail blk
 		if value = tail [RETURN_NONE]
@@ -860,6 +860,13 @@ natives: context [
 				type = TYPE_MONEY [
 					res: zero? money/compare as red-money! arg1 as red-money! arg2 COMP_SAME
 				]
+				any [
+					type = TYPE_ACTION
+					type = TYPE_NATIVE
+					type = TYPE_OP
+				][
+					res: all [arg1/data2 = arg2/data2 arg1/data3 = arg2/data3]
+				]
 				true [
 					res: all [
 						arg1/data1 = arg2/data1
@@ -941,11 +948,11 @@ natives: context [
 	][
 		#typecheck [reduce into]
 		arg: stack/arguments
-		blk: as red-block! stack/arguments
 		blk?: TYPE_OF(arg) = TYPE_BLOCK
 		into?: into >= 0
 
 		if blk? [
+			blk: as red-block! stack/push arg
 			value: block/rs-head blk
 			tail:  block/rs-tail blk
 		]
@@ -978,7 +985,7 @@ natives: context [
 			][
 				stack/set-last arg
 			][
-				interpreter/eval-expression arg arg + 1 blk no yes no ;-- for non block! values
+				interpreter/eval-expression arg arg + 1 null no yes no ;-- for non block! values
 			]
 			if into? [either append? [block/append*][actions/insert* -1 0 -1]]
 		]

@@ -16,6 +16,7 @@ write %build/bin/sources.r set-cache [
 	%boot.red
 	%compiler.r
 	%lexer.r
+	%modules.r
 	%build/ [
 		%git.r
 	]
@@ -40,7 +41,6 @@ write %build/bin/sources.r set-cache [
 			%PNG.red
 			%CSV.red
 			%JSON.red
-			%XML.red
 			%redbin.red
 		]
 		%console/ [

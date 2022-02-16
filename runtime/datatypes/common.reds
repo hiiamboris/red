@@ -91,12 +91,16 @@ copy-cell: func [
 	src		[cell!]
 	dst		[cell!]
 	return: [red-value!]
+	/local
+		d s [int-ptr!]
 ][
 	if src = dst [return dst]
-	copy-memory											;@@ optimize for 16 bytes copying
-		as byte-ptr! dst
-		as byte-ptr! src
-		size? cell!
+	d: as int-ptr! dst
+	s: as int-ptr! src
+	d/1: s/1											;@@ should use SIMD 128-bit copying when possible
+	d/2: s/2
+	d/3: s/3
+	d/4: s/4
 	dst
 ]
 
@@ -775,6 +779,8 @@ words: context [
 	_parse-cb:		as red-word! 0
 	_compare-cb:	as red-word! 0
 	
+	_local: 		as red-word! 0
+	
 	errors: context [
 		_throw:		as red-word! 0
 		note:		as red-word! 0
@@ -1062,6 +1068,8 @@ words: context [
 		errors/user:	 word/load "user"
 		errors/internal: word/load "internal"
 		errors/invalid-error: word/load "invalid-error"
+		
+		_local:			 word/load "local"
 		
 		changed:		_changed/symbol
 	]

@@ -1769,10 +1769,9 @@ Red [
 		unset 'ctx1509
 
 	--test-- "#1515"
-		--assert not error? try [1.222090944E+33 // -2147483648.0] ; expected 0
-		--assert equal? 0.0 1.222090944E+33 // -2147483648.0 
-		; FIXME: this is still unfixed:
-		;--assert equal? 0.0 1.222090944E+33 % -2147483648.0 
+		--assert zero? 1.222090944E+33 // -2147483648.0
+		--assert zero? 1.222090944E+33 // -2147483648.0
+		--assert zero? 1.222090944E+33 %  -2147483648.0
 
 	; --test-- "#1519"
 		; TODO: call-test.red problem
@@ -3217,6 +3216,18 @@ comment {
 	--test-- "#4994"
 		save qt-tmp-file append/dup "" "§☺" 500000
 		transcode read qt-tmp-file
+
+	--test-- "#5067"
+		c5067: context [
+			b: reduce ['f does [visited?: yes print ""]]
+			o: object [f: does [visited?: yes print ""]]
+		]
+		visited?: no
+		--assert unset? c5067/('b)/f
+		--assert visited?
+		visited?: no
+		--assert unset? c5067/('o)/f
+		--assert visited?
 
 ===end-group===
 
