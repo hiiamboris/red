@@ -97,7 +97,7 @@ xml: context [
 	cont-val: ""
 	value?: false
 
-	target: []
+	target: none
 	target-stack: []
 
 	set 'load-xml func [
@@ -119,7 +119,7 @@ xml: context [
 		unless string? data [data: read data]
 		if empty? data [return make block! 0]
 		; cleanup state
-		clear target
+		target: make block! 10
 		clear target-stack
 		clear attributes
 		value: att-name: att-value: verinfo: encinfo: none
