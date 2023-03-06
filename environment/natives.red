@@ -677,6 +677,7 @@ as-pair: make native! [[
 	]
 	#get-definition NAT_AS_PAIR
 ]
+do [by: make op! :as-pair]
 
 as-money: make native! [[
 		"Combine currency code and amount into a monetary value"
