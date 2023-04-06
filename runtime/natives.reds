@@ -883,8 +883,10 @@ natives: context [
 				any [
 					type = TYPE_ACTION
 					type = TYPE_NATIVE
-					type = TYPE_OP
 				][
+					res: all [arg1/data1 = arg2/data1 arg1/data2 = arg2/data2]
+				]
+				type = TYPE_OP [
 					res: all [arg1/data2 = arg2/data2 arg1/data3 = arg2/data3]
 				]
 				true [
@@ -2989,6 +2991,32 @@ natives: context [
 		]
 		either null? out [stack/set-last slot][stack/set-last as red-value! out]
 	]
+	
+	apply*: func [
+		check?	[logic!]
+		as-is	[integer!]
+		/local
+			args  [red-block!]
+			mode  [integer!]
+			s	  [series!]
+	][	
+		#typecheck [apply as-is]
+
+		args: as red-block! stack/arguments + 1
+		s: GET_BUFFER(args)
+		mode: either as-is < 0 [interpreter/MODE_APPLY_EVAL][interpreter/MODE_APPLY]
+		
+		interpreter/eval-code
+			stack/arguments
+			s/offset + args/head
+			s/tail
+			args
+			no
+			null
+			as red-value! words/_expr
+			null
+			mode
+	]
 
 	;--- Natives helper functions ---
 	
@@ -3568,6 +3596,7 @@ natives: context [
 			:decompress*
 			:recycle*
 			:transcode*
+			:apply*
 		]
 	]
 
