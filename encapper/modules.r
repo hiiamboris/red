@@ -17,3 +17,4 @@ REBOL [
 	View		%modules/view/view.red				[Windows macOS Linux]
 	JSON		%environment/codecs/JSON.red		all
 	CSV 		%environment/codecs/CSV.red			all
+	XML 		%environment/codecs/XML.red			all
