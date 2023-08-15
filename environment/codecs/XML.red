@@ -218,7 +218,7 @@ xml: context [
 	|	sq any [not sq PubidChar] sq
 	]
 	PubidChar: charset reduce [
-		space cr lf #"a" '- #"z" #"A" '- #"Z" {-'()+,./:=?;!*#@$_%}
+		space cr lf #"a" '- #"z" #"A" '- #"Z" #"0" '- #"9" {-'()+,./:=?;!*#@$_%}
 	]
 
 	; -- Character Data
@@ -284,6 +284,7 @@ xml: context [
 	Misc: [Comment | PI | S+]
 
 	; -- Document Type Definition
+	; ??: [p: (? p)]
 	doctypedecl: [
 		S+
 		"<!DOCTYPE"
