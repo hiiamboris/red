@@ -8,6 +8,8 @@ Red [
 	
 		Decoder features supported or not:
 		+ internal named resource inclusion
+		- animations
+		- events
 		- external resources (should we load them (files/urls)?)
 		- CSS (needs CSS decoder, and compiler to apply it to the SVG tree)
 		- namespaces (are just ignored)
