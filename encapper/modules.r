@@ -18,3 +18,4 @@ REBOL [
 	JSON		%environment/codecs/JSON.red		all
 	CSV 		%environment/codecs/CSV.red			all
 	XML 		%environment/codecs/XML.red			all
+	SVG 		%environment/codecs/SVG.red			all
