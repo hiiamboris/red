@@ -611,6 +611,7 @@ put system/codecs 'svg make object! [
 			#preserveAspectRatio	aspect
 			#transform				transform
 			#d						path				;-- path dialect
+			#points					points				;-- polygon, line, etc.
 		)
 		
 		decode-attr: func [attr [issue!] string [string!]] [
