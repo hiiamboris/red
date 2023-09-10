@@ -145,7 +145,7 @@ Red [
 ];Red [
 
 
-#include %/d/devel/red/common/assert.red
+; #include %/d/devel/red/common/assert.red
 
 ; put system/codecs 'svg context [
 put system/codecs 'svg make object! [
@@ -338,7 +338,10 @@ put system/codecs 'svg make object! [
 		]
 		
 		decode-length: function [string [string!]] [	;-- number with unit
-			parse string [wsc* number: =basic-number= unit: [to white! | to end] end: | p: (fail-at p)]
+			parse string [
+				wsc* number: =unsafe-number= unit: [to white! | to end] end:
+			|	p: (fail-at p)
+			]
 			number: load-token number unit
 			unless tail? end [unit: copy/part unit end]	;-- trailing whitespace must be ignored
 			reduce [number unit]
@@ -837,7 +840,7 @@ put system/codecs 'svg make object! [
 						font-size / pick [1 2] "em" = unit
 					]
 				]
-				fail-at string
+				fail-at length
 			]
 			scale * number
 		]
