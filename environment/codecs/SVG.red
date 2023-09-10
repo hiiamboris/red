@@ -943,7 +943,7 @@ put system/codecs 'svg make object! [
 			size:  as-point2D w h
 			if start <> (0,0) [warn ["Draw doesn't support offsetting pattern tile"]]
 			content: either pat/content [
-				compose [(reset-draw) (next data) (pat/content)]	;-- apply viewbox transform to content
+				compose [(reset-draw) (init-draw) (next data) (pat/content)]	;-- apply viewbox transform to content
 			][
 				copy []
 			]
@@ -996,7 +996,7 @@ put system/codecs 'svg make object! [
 			equal?
 				compose/deep [
 					pen pattern (10, 20) (0, 0) (10, 20) tile [
-						(reset-draw) fill-pen 0.1.2 box (1, 1) (2, 2)
+						(reset-draw) (init-draw) fill-pen 0.1.2 box (1, 1) (2, 2)
 					]
 				]
 				quiet [
