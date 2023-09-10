@@ -662,9 +662,10 @@ put system/codecs 'svg make object! [
 
 		decode-viewport: function [stack [block!]] [
 			scope: stack/-1
-			foreach [word attr] [w: #width h: #height box: #viewBox] [
+			foreach [word attr] [w: #width h: #height] [
 				set word get-value/for stack attr scope/element
 			]
+			box: scope/#viewBox
 			src-size: if box [box/2]
 			tgt-size: as-point2D w h
 			any [src-size tgt-size]
