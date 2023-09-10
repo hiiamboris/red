@@ -752,6 +752,7 @@ put system/codecs 'svg make object! [
 			#fill-opacity #stroke-opacity				;-- used to apply opacity when fill/stroke value changes
 			#stop-opacity								;-- used when when forming gradient stops
 			#font-size #x-height						;-- used to measure em/ex unit size
+			#color										;-- used to give value to pen='currentColor'
 			viewport									;-- used to scale percent unit
 			#[true]										;-- this just simplifies lookup by enabling paths
 		]
@@ -1096,7 +1097,10 @@ put system/codecs 'svg make object! [
 		emit-rules: make map! [
 			;@@ rect of zero height/width, and ellipse of zero rx/ry must not be rendered
 			rect		[box  (xy: L#x #y)  (xy + L#width #height)	;@@ box only supports symmetric rounding radius
-						 (len? any [?#rx ?#ry 0] any [?#ry ?#rx 0])]	;-- https://www.w3.org/TR/SVG11/shapes.html#RectElementRYAttribute
+						 (
+						 	len: len? any [?#rx ?#ry 0] any [?#ry ?#rx 0]	;-- https://www.w3.org/TR/SVG11/shapes.html#RectElementRYAttribute
+						 	only if len > 0 [len]				;@@ workaround for #5383
+						 )]
 			circle		[circle  (L#cx #cy) (#r)]
 			ellipse		[ellipse (subtract L#cx #cy L#rx #ry) (2 * L#rx #ry)]
 			line		[line    (L#x1 #y1) (L#x2 #y2)]
@@ -1141,7 +1145,7 @@ put system/codecs 'svg make object! [
 		]
 		
 		;; called on an element when all of its children are emitted into scope/content, and all attrs/props in the tree decoded
-		emit-element: function [stack [block!] dict [map!] /local xy] [
+		emit-element: function [stack [block!] dict [map!] /local xy len] [
 			scope:  stack/-1
 			elem:   scope/element
 			result: make [] 8
