@@ -872,7 +872,7 @@ put system/codecs 'svg make object! [
 			unless id: scope/#id [exit]					;-- gradient without id cannot be used, so ignore it
 			if scope/#href [							;-- inherit attrs from referenced gradient
 				ref: fetch-url scope/#href dict
-				unless map? :ref/1 [fail-at ref]
+				all [ref  not map? :ref/1  fail-at ref]
 			]
 			either ref [
 				map: extend copy ref: ref/1 scope
@@ -1077,10 +1077,11 @@ put system/codecs 'svg make object! [
 		;; '?' stands for "no error if no value", 'L' for as-point2D constructor (dialect is preprocessed below)
 		;@@ width/height/r of zero should completely disable shape rendering
 		emit-rules: make map! [
+			;@@ rect of zero height/width, and ellipse of zero rx/ry must not be rendered
 			rect		[box  (xy: L#x #y)  (xy + L#width #height)	;@@ box only supports symmetric rounding radius
 						 (len? any [?#rx ?#ry 0] any [?#ry ?#rx 0])]	;-- https://www.w3.org/TR/SVG11/shapes.html#RectElementRYAttribute
 			circle		[circle  (L#cx #cy) (#r)]
-			ellipse		[ellipse (subtract L#cx #cy L#rx #ry) (2 * L#rx #ry)]	;@@ rx or ry=0 should disable it completely (so silly)
+			ellipse		[ellipse (subtract L#cx #cy L#rx #ry) (2 * L#rx #ry)]
 			line		[line    (L#x1 #y1) (L#x2 #y2)]
 			polyline	[line    (#points)]
 			polygon		[polygon (#points)]
