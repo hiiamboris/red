@@ -944,7 +944,7 @@ put system/codecs 'svg make object! [
 			]
 			if any [units = 'object cunits = 'object] [
 				warn ["objectBoundingBox mode is not supported by Draw for pattern size"]
-				return []
+				return reduce [pen 'off]
 			]
 			start: as-point2D x y
 			size:  as-point2D w h
@@ -964,7 +964,7 @@ put system/codecs 'svg make object! [
 				string? color [
 					ref: fetch-url color dict
 					unless all [ref map? :ref/1] [fail-at color]
-					result: either ref/1/type = 'pattern [
+					either ref/1/type = 'pattern [
 						emit-pattern  pen ref					;-- pattern uses viewbox transforms from 'ref' 
 					][	emit-gradient pen ref
 					] 
@@ -1014,7 +1014,7 @@ put system/codecs 'svg make object! [
 					)])
 				]
 				
-			[pen off] = emit-pen 'pen "#invalid" [] #()
+			; [pen off] = emit-pen 'pen "#invalid" [] #()		;@@ is this valid??
 		]
 		
 		
