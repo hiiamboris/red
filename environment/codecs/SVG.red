@@ -389,6 +389,9 @@ put system/codecs 'svg make object! [
 			'current    = decode-color "currentColor"
 		]
 		
+		;; SVG 1.1 prescribes that odd number of coordinates is an error
+		;; SVG 2.0 says the same https://www.w3.org/TR/SVG/shapes.html but with a note:
+		;; "In such error cases the user agent will drop the last, odd coordinate and otherwise render the shape"
 		decode-points: function [string [string!]] [
 			buffer: make [] (length? string) / 4
 			parse string [
@@ -396,6 +399,7 @@ put system/codecs 'svg make object! [
 					wsc* x: =number= wsc+ y: =number=
 					keep (as-point2D transcode/one x transcode/one y)
 				] wsc*
+				opt [=number= wsc*]						;-- ignore the odd coordinate
 				[end | p: (fail-at p)]
 			]
 			buffer
