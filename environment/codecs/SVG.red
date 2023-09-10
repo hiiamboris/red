@@ -392,14 +392,16 @@ put system/codecs 'svg make object! [
 		;; SVG 1.1 prescribes that odd number of coordinates is an error
 		;; SVG 2.0 says the same https://www.w3.org/TR/SVG/shapes.html but with a note:
 		;; "In such error cases the user agent will drop the last, odd coordinate and otherwise render the shape"
+		;; also, specs don't mention it, but "100-200" is a valid (100, -200) point in polylines
+		;; as evidenced by (approved) test %shapes-grammar-01-f.svg and browsers decoding it fine
 		decode-points: function [string [string!]] [
 			buffer: make [] (length? string) / 4
 			parse string [
 				collect after buffer any [
-					wsc* x: =number= wsc+ y: =number=
-					keep (as-point2D transcode/one x transcode/one y)
+					wsc* x: =unsafe-number= xe: wsc* y: =unsafe-number= ye:
+					keep (as-point2D load-token x xe load-token y ye)
 				] wsc*
-				opt [=number= wsc*]						;-- ignore the odd coordinate
+				opt [=unsafe-number= wsc*]				;-- ignore the odd coordinate
 				[end | p: (fail-at p)]
 			]
 			buffer
