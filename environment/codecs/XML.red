@@ -200,7 +200,7 @@ xml: context [
 	ent-dchars: complement charset {%&"}
 	ent-schars: complement charset {%&'}
 	EntityValue: [
-		dq any [ent-schars | PEReference | Reference] dq
+		dq any [ent-dchars | PEReference | Reference] dq
 	|	sq any [ent-schars | PEReference | Reference] sq
 	]
 	att-dchars: complement charset {<&"}
