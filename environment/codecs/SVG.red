@@ -145,7 +145,7 @@ Red [
 ];Red [
 
 
-; #include %/d/devel/red/common/assert.red
+#include %/d/devel/red/common/assert.red
 
 ; put system/codecs 'svg context [
 put system/codecs 'svg make object! [
@@ -390,8 +390,9 @@ put system/codecs 'svg make object! [
 			'current    = decode-color "currentColor"
 		]
 		
-		;; SVG 1.1 prescribes that odd number of coordinates is an error
-		;; SVG 2.0 says the same https://www.w3.org/TR/SVG/shapes.html but with a note:
+		;; https://www.w3.org/TR/SVG11/implnote.html#ErrorProcessing prescribes to:
+		;; "render the ‘polyline’ or ‘polygon’ up to the segment [in 'points'] with the error" 
+		;; SVG 2.0 says in https://www.w3.org/TR/SVG/shapes.html:
 		;; "In such error cases the user agent will drop the last, odd coordinate and otherwise render the shape"
 		;; also, specs don't mention it, but "100-200" is a valid (100, -200) point in polylines
 		;; as evidenced by (approved) test %shapes-grammar-01-f.svg and browsers decoding it fine
@@ -402,8 +403,8 @@ put system/codecs 'svg make object! [
 					wsc* x: =unsafe-number= xe: wsc* y: =unsafe-number= ye:
 					keep (as-point2D load-token x xe load-token y ye)
 				] wsc*
-				opt [=unsafe-number= wsc*]				;-- ignore the odd coordinate
-				[end | p: (fail-at p)]
+				;; warn but accept any invalid trailing data
+				[end | p: (warn ["Invalid 'points' data at: "mold/part p 100])]
 			]
 			buffer
 		]
@@ -413,6 +414,7 @@ put system/codecs 'svg make object! [
 			[(1,2)]        = decode-points {1, 2}
 			[(1,2)  (3,4)] = decode-points { 1 , 2 3,4 }
 			[(10,2) (3,4)] = decode-points { 1e1,2,3e+0 4e-0}
+			[(10,2) (3,4)] = quiet [decode-points { 1e1,2,3e+0 4e-0zomg}]
 		]
 		
 		path-grammar: [
@@ -435,6 +437,10 @@ put system/codecs 'svg make object! [
 		
 		;; note: SVG paths do not support units (incl. %), only attributes
 		path-command!: charset "MmLlZzHhVvCcSsQqTtAa" 
+		
+		;; https://www.w3.org/TR/SVG11/implnote.html#ErrorProcessing prescribes to:
+		;; "render the ‘path’ up to the point of the path data error"
+		;; see also https://www.w3.org/TR/SVG11/implnote.html#PathElementImplementationNotes
 		decode-path: function [string [string!] /extern cmd] with path-grammar [
 			buffer: make [] (length? string) / 4
 			end: start: (0,0)
@@ -448,7 +454,7 @@ put system/codecs 'svg make object! [
 					] =switch-cmd=]
 					any [opt [set cmd path-command! ws* =switch-cmd=] =scan+emit=]
 				] wsc*
-				[end | p: (fail-at p)]
+				[end | p: (warn ["Invalid 'path' data at: "mold/part p 100])]
 			]
 			buffer
 		]
@@ -487,6 +493,7 @@ put system/codecs 'svg make object! [
 										= decode-path {M1 2 3 4zL5 6}	;-- https://www.w3.org/TR/SVG11/paths.html#PathDataClosePathCommand
 			[move (100, -200)]          = decode-path {M100-200}		;-- https://www.w3.org/TR/SVG11/paths.html#PathDataBNF
 			[move (0.6, 0.5)]           = decode-path {M 0.6.5}			;-- yes, this idiocy is by design
+			[move (10, 2) line (3, 4)]  = quiet [decode-path {M 1e1,2,3e+0 4e-0error}]
 		]
 		
 		shift-factors: #(
@@ -1006,6 +1013,8 @@ put system/codecs 'svg make object! [
 						#width [10 ""] #height [20 ""] #patternUnits user
 					)])
 				]
+				
+			[pen off] = emit-pen 'pen "#invalid" [] #()
 		]
 		
 		
