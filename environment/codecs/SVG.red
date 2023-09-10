@@ -586,7 +586,9 @@ put system/codecs 'svg make object! [
 		
 		;; decoders have 2 arguments: string [string!] and optional stack [block!]
 		;; stack is required by font-size which has to be inherited always as computed value
-		;; so font-size has to become a final number at decoding stage
+		;;   so font-size has to become a final number at decoding stage
+		;; same for viewport: since content is emitted before parents, content needs access to final viewport size
+		;;   but viewport cannot be handled here because it's not a single attribute but a mess
 		decoders: make map! [
 			units		[pick-from-set string #("userSpaceOnUse" user "objectBoundingBox" object)]
 			spread		[pick-from-set string #("reflect" reflect "repeat" repeat "pad" pad)]
@@ -656,6 +658,16 @@ put system/codecs 'svg make object! [
 			foreach [attr string] scope: stack/-1 [				;@@ use map-each to filter attr
 				if issue? attr [scope/:attr: decode-attr attr string stack]
 			]                                                               
+		]
+
+		decode-viewport: function [stack [block!]] [
+			scope: stack/-1
+			foreach [word attr] [w: #width h: #height box: #viewBox] [
+				set word get-value/for stack attr scope/element
+			]
+			src-size: if box [box/2]
+			tgt-size: as-point2D w h
+			any [src-size tgt-size]
 		]
 		
 		;; defaults must be in format produced by decoders, but strings are fine too, easier to verify (decoded below)
@@ -1136,8 +1148,7 @@ put system/codecs 'svg make object! [
 				foreach [word attr] [x: #x y: #y w: #width h: #height aspect: #preserveAspectRatio] [
 					set word get-value/for stack attr elem
 				]
-				scope/viewport: size: as-point2D w h
-				append result emit-viewport as-point2D x y size scope/#viewBox aspect
+				append result emit-viewport as-point2D x y as-point2D w h scope/#viewBox aspect
 			]
 			
 			;; emit children (already processed and emitted into scope/content)
@@ -1219,6 +1230,9 @@ put system/codecs 'svg make object! [
 					(
 						scope/element: elem-name
 						decode-attributes stack
+						if deforming/:elem-name [
+							scope/viewport: decode-viewport stack
+						]
 						scope/content: decode inner stack dict
 						elem: emit-element stack dict
 						stack: leave stack
