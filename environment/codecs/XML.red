@@ -462,7 +462,7 @@ xml: context [
 					not empty? trim char-data
 				] [
 					repend target [
-						'text!
+						text-mark
 						copy char-data
 						none
 					]
@@ -588,7 +588,7 @@ xml: context [
 					value?
 					not empty? cont-val
 				] [
-					append last target reduce ['! cont-val]
+					append last target reduce [text-mark cont-val]
 				]
 				value?: false
 				clear char-data
@@ -635,7 +635,7 @@ xml: context [
 					not empty? trim char-data
 				] [
 					repend target [
-						'text!
+						text-mark
 						copy char-data
 					]
 					break-at target -2
@@ -661,7 +661,7 @@ xml: context [
 			)
 			'pop-stack quote (
 				store-char-data
-;				unless find target 'text! [repend target ['text! none]]
+;				unless find target text-mark [repend target [text-mark none]]
 ;				break-at target -2
 				target: take/last target-stack
 				value?: false
