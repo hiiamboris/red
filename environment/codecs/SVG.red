@@ -8,8 +8,8 @@ Red [
 	
 		Decoder features supported or not:
 		+ internal named resource inclusion
-		- animations
-		- events
+		- animations (no framework in the language anyway atm)
+		- events (no Draw support, would require generating Spaces trees)
 		- external resources (should we load them (files/urls)?)
 		- CSS (needs CSS decoder, and compiler to apply it to the SVG tree)
 		- namespaces (are just ignored)
@@ -126,6 +126,10 @@ Red [
 		Firefox-based browsers compute font-relative lengths first, then apply font-size to children only.
 		(so the result is like `x="1em" y="1em" font-size="20"`)
 		I don't know if it's even worth a special case in the codec.
+		
+		Another issue is font-size can be expressed in em/ex units, i.e. dependent on font-size above it.
+		Or it can be expressed in % units, and depend on viewport (above or in the same element?).
+		For simplicity I made font-size units always relative to upper scopes, ignoring current element.
 
 	*	On paths...		
 	
@@ -291,7 +295,7 @@ put system/codecs 'svg make object! [
 		units: make map! [								;-- fixed units for lengths, except %/em/ex
 			""   1.0
 			"px" 1.0
-			"pt" 1.333333333333333						;-- 1 point = 1/12 pica
+ 			"pt" 1.333333333333333						;-- 1 point = 1/12 pica
 			"pc" 16.0									;-- 1 pica = 1/6 inch
 			"mm" 3.779527559055118
 			"cm" 37.79527559055118						;-- 1 cm = 1/2.54 inch
@@ -546,25 +550,43 @@ put system/codecs 'svg make object! [
 			= specialize-transform decode-transform "translate(-10,-20) scale(2)" 'fill-pen
 		]
 		
-		;; https://meyerweb.com/eric/articles/webrev/199908a.html suggests 120% scaling between adjacent sizes
+		;; https://www.w3.org/TR/2008/REC-CSS2-20080411/fonts.html#value-def-absolute-size
+		;; "On a computer screen a scaling factor of 1.2 is suggested between adjacent indexes"
+		;@@ remove rounding when Red supports float sizes
 		font-sizes: make map! compose with :system/view/fonts [	;@@ or use a predefined 12px for 'medium'?
-			"xx-small"	(round/to size / 1.728 1)
-			"x-small"	(round/to size / 1.44 1)
-			"small"		(round/to size / 1.2 1)
+			"xx-small"	(size / 1.728 1)
+			"x-small"	(size / 1.44 1)
+			"small"		(size / 1.2 1)
 			"medium"	(size)
-			"large"		(round/to size * 1.2 1)
-			"x-large"	(round/to size * 1.44 1)
-			"xx-large"	(round/to size * 1.728 1)
+			"large"		(size * 1.2 1)
+			"x-large"	(size * 1.44 1)
+			"xx-large"	(size * 1.728 1)
 		]
 		
-		decode-font-size: function [string [string!]] [
-			;@@ TODO
+		;; unlike other decoders this has to finalize font-size as it has to be inherited as computed value
+		;; so it needs stack access
+		;; it also has to take scales from the parent element(s), not the current one
+		;; else font-size of "2em" will cyclically depend on itself
+		;; returned size is line-height size in pixels, not Red font size
+		decode-font-size: function [string [string!] stack [block!]] [
+			any [
+				font-sizes/:string
+				if op: switch string ["larger" [:*] "smaller" [:/]] [
+					(get-value back stack #font-size) op 1.2
+				]
+				if block: decode-length string [
+					emit-length block #font-size back stack
+				]
+			]
 		]
 		
 		pick-from-set: function [string [string!] options [map!]] [
 			any [options/:string  fail-at string]
 		]
 		
+		;; decoders have 2 arguments: string [string!] and optional stack [block!]
+		;; stack is required by font-size which has to be inherited always as computed value
+		;; so font-size has to become a final number at decoding stage
 		decoders: make map! [
 			units		[pick-from-set string #("userSpaceOnUse" user "objectBoundingBox" object)]
 			spread		[pick-from-set string #("reflect" reflect "repeat" repeat "pad" pad)]
@@ -580,10 +602,11 @@ put system/codecs 'svg make object! [
 			points		[decode-points string]			;-- int/float couples to convert to point2Ds
 			percentage	[clip 0 1 decode-number string]	;-- spec prescribes clipping of opacities and gradient offsets
 			path		[decode-path string]
+			font-size	[decode-font-size string stack]
 		]
 		hide [
 			foreach [type body] decoders [				;@@ use map-each
-				decoders/:type: function [string] body
+				decoders/:type: function [string stack] body
 			]
 		]
 		
@@ -614,18 +637,24 @@ put system/codecs 'svg make object! [
 			#transform				transform
 			#d						path				;-- path dialect
 			#points					points				;-- polygon, line, etc.
+			#font-size				font-size
 		)
 		
-		decode-attr: func [attr [issue!] string [string!]] [
-			decoders/(attr-types/:attr) string
+		decode-attr: func [attr [issue!] string [string!] stack [block!]] [
+			any [
+				if decoder: :decoders/(attr-types/:attr) [
+					decoder string stack
+				]
+				string									;-- fallback to no decoding
+			]
 		]
 				
 		decode-attributes: function [
 			"Decode all of the element's attributes into Red values"
-			scope [map!]
+			stack [block!]
 		][
-			foreach [attr string] scope [				;@@ use map-each to filter attr
-				if issue? attr [scope/:attr: decode-attr attr string]
+			foreach [attr string] scope: stack/-1 [				;@@ use map-each to filter attr
+				if issue? attr [scope/:attr: decode-attr attr string stack]
 			]                                                               
 		]
 		
@@ -635,14 +664,13 @@ put system/codecs 'svg make object! [
 				;; specials
 				content				[]					;-- used by gradients/patterns flattening
 				viewport			(100,100)			;-- arbitrary, to avoid errors ;@@ should be user-provided
-				#font-size			"12"				;-- ditto, reassigned below
+				#font-size			12					;-- ditto, reassigned below
 				
 				;; https://www.w3.org/TR/SVG11/propidx.html - selected property defaults, to be extended once more are supported
 				#color				"black"				;-- reassigned below
 				#fill				"black"
 				#fill-opacity		"1"
 				#fill-rule			"nonzero"
-				#font-size			"medium"
 				#opacity			"1"					;-- affects pen, fill, gradient stops
 				#stop-color			"black"
 				#stop-opacity		"1"
@@ -683,7 +711,7 @@ put system/codecs 'svg make object! [
 		hide [
 			foreach [elem map] defaults [
 				foreach [attr value] map [
-					if string? :value [map/:attr: decode-attr attr value]
+					if string? :value [map/:attr: decode-attr attr value []]
 				]
 			]
 		]
@@ -703,7 +731,7 @@ put system/codecs 'svg make object! [
 			all [
 				value: any [
 					map/:attr
-					defaults/(map/element)/:attr
+					select defaults/(map/element) attr
 					defaults/all/:attr
 				]
 				attr-types/:attr = 'length
@@ -824,11 +852,11 @@ put system/codecs 'svg make object! [
 			scope: stack/-1
 			unless id: scope/#id [exit]					;-- gradient without id cannot be used, so ignore it
 			if scope/#href [							;-- inherit attrs from referenced gradient
-				ref: fetch-url dict scope/#href
-				unless map? ref: :ref/1 [fail-at ref]
+				ref: fetch-url scope/#href dict
+				unless map? :ref/1 [fail-at ref]
 			]
 			either ref [
-				map: extend copy ref scope
+				map: extend copy ref: ref/1 scope
 				if all [empty? map/content not empty? ref/content] [	;-- do not override non-empty stops with empty
 					map/content: ref/content
 				]
@@ -994,6 +1022,26 @@ put system/codecs 'svg make object! [
 			;@@ test viewport
 		]
 		
+		;@@ fonts are scarce (see #4373), so may be abused, so font-cache may at least lessen the effects
+		font-cache: make map! 4
+		
+		;@@ need a faster, by-design way to convert SVG font size into Red font size (REP #136)
+		;@@ right now using a face to make measurements (slow, imprecise)
+		rich-text-face: rtd-layout ["X"]
+		rich-text-face/size: none
+		
+		emit-font: function [name [string!] size [float! integer!]] [
+			unless group: font-cache/:name [group: font-cache/:name: make map! 4]
+			unless font: group/:size [
+				font: group/:size: make font! compose [name: (name) size: 72]
+				rich-text-face/font: font
+				line-height: second size-text rich-text-face 
+				rich-text-face/font: none
+				font/size: round/to (size * 72 / line-height) 1	;@@ disable rounding once Red supports float size
+			]
+			font
+		]
+		
 		;; elements that are not emitted and whose children are never emitted, but an #id may be assigned
 		ignored:		make hash! [defs pattern linearGradient radialGradient #[true]]
 		
@@ -1039,21 +1087,19 @@ put system/codecs 'svg make object! [
 			#viewBox			[]						;-- ignored: see special case in 'emit-element'
 			#preserveAspectRatio[]						;-- ignored: ditto
 			#transform			[]						;-- ignored: see special case in 'emit-element'
-			#gradientUnits		[]
-			#patternUnits		[]
 			#stroke				[(emit-pen/blend 'pen      value stack dict any [?#stroke-opacity 1])]
 			#fill				[(emit-pen/blend 'fill-pen value stack dict any [?#fill-opacity   1])]
-			;@@ #font-size []
+			#font-size			[font (emit-font system/view/fonts/system value)]	;@@ add support for font face
 			
 			;; SVG attributes are used by elements, not emitted directly
 			#x [] #y [] #x1 [] #y1 [] #x2 [] #y2 [] #cx [] #cy [] #rx [] #ry [] #r [] #d [] #points [] #width [] #height []
 			#color [] #offset [] #stop-color [] #stop-opacity []
-			#patternTransform [] #gradientTransform []
+			#patternTransform [] #gradientTransform [] #patternUnits [] #gradientUnits []
 		];emit-rules: make map! [
 		
 		;; add useless bloat to ignore
 		hide [
-			bloat: [desc title parent #xmlns #version #svg #xlink]
+			bloat: [desc title parent space base #xmlns #version #svg #xlink]
 			foreach name bloat [emit-rules/:name: []]
 		]
 		
@@ -1078,6 +1124,12 @@ put system/codecs 'svg make object! [
 				]
 			]
 			
+			;; emit the element
+			any [
+				if rule: emit-rules/:elem [compose/deep/into rule tail result]
+				warn ["Unsupported element '"elem"' is ignored"]
+			]
+			
 			;; special case: viewBox must follow (all?) other attributes: https://www.w3.org/TR/SVG11/coords.html#ViewBoxAttribute
 			;; 'viewBox' also requires other attributes for it to have any meaning
 			if deforming/:elem [
@@ -1086,12 +1138,6 @@ put system/codecs 'svg make object! [
 				]
 				scope/viewport: size: as-point2D w h
 				append result emit-viewport as-point2D x y size scope/#viewBox aspect
-			]
-			
-			;; emit the element
-			any [
-				if rule: emit-rules/:elem [compose/deep/into rule tail result]
-				warn ["Unsupported element '"elem"' is ignored"]
 			]
 			
 			;; emit children (already processed and emitted into scope/content)
@@ -1142,7 +1188,7 @@ put system/codecs 'svg make object! [
 			parse data [any [							;-- accepts any number of elements
 				opt refinement!
 				set elem-name word!
-				ahead block! into [;source:				;-- source used for error reports
+				ahead block! into [
 					(
 						stack: enter stack
 						scope: stack/-1
@@ -1150,9 +1196,9 @@ put system/codecs 'svg make object! [
 					any [								;-- collect attributes before emitting element
 						;; unlike 'transform', 'svg:transform' must be ignored:
 						;; https://www.w3.org/TR/SVG11/coords.html#SVGGlobalTransformAttribute
-						/svg #transform skip
-					|
-						set attr-ns opt refinement!
+						; /svg #transform skip
+					; |
+						set attr-ns opt /xlink			;-- xlink is the only namespace used, the rest is ignored
 						set attr-name issue!
 						set attr-data string!
 						(
@@ -1165,13 +1211,14 @@ put system/codecs 'svg make object! [
 							]
 						)
 					|
+						refinement! 2 skip				;-- we don't know how to decode other namespaces, so skip them
+					|
 						'text! skip
 					]
 					inner: to end
 					(
 						scope/element: elem-name
-						; scope/source:  source
-						decode-attributes stack/-1
+						decode-attributes stack
 						scope/content: decode inner stack dict
 						elem: emit-element stack dict
 						stack: leave stack
