@@ -176,6 +176,7 @@ put system/codecs 'svg make object! [
 				push [(internal/init-draw) (data)]
 			]
 		]
+		internal/font-cache: make map! 4				;-- reallocate cache to free resources
 		data											;@@ return also size (if defined)?
 	]
 	
