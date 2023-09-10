@@ -1078,7 +1078,7 @@ put system/codecs 'svg make object! [
 			rect		[box  (xy: L#x #y)  (xy + L#width #height)	;@@ box only supports symmetric rounding radius
 						 (len? any [?#rx ?#ry 0] any [?#ry ?#rx 0])]	;-- https://www.w3.org/TR/SVG11/shapes.html#RectElementRYAttribute
 			circle		[circle  (L#cx #cy) (#r)]
-			ellipse		[ellipse (L#cx #cy) (L#rx #ry)]
+			ellipse		[ellipse (subtract L#cx #cy L#rx #ry) (2 * L#rx #ry)]	;@@ rx or ry=0 should disable it completely (so silly)
 			line		[line    (L#x1 #y1) (L#x2 #y2)]
 			polyline	[line    (#points)]
 			polygon		[polygon (#points)]
