@@ -763,7 +763,7 @@ put system/codecs 'svg make object! [
 			all [
 				value: any [
 					either deep-attrs/:attr [
-						pos: tail stack
+						pos: stack
 						while [not head? pos] [					;@@ use foreach/reverse
 							pos: back pos
 							if value: pos/1/:attr [break]
