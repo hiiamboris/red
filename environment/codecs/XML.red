@@ -405,7 +405,7 @@ xml: context [
 	CharRef: [ "&#" some digit #";" | "&#x" some hexnum #";"]
 	Reference: [EntityRef | CharRef]
 	EntityRef: [#"&" Name #";"]
-	PERreference: [#"%" Name #";"]
+	PEReference: [#"%" Name #";"]
 
 	; -- Entity Declaration
 	EntityDecl: [GEDecl | PEDecl]
