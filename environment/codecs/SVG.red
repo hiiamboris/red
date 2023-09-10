@@ -1020,17 +1020,21 @@ put system/codecs 'svg make object! [
 			; [pen off] = emit-pen 'pen "#invalid" [] #()		;@@ is this valid??
 		]
 		
-		
-		;@@ need to ignore tgt-offset for topmost SVG! https://www.w3.org/TR/SVG11/struct.html#SVGElement
 		emit-viewport: function [						;-- establishes a new viewport; order: translate, clip, scale
 			tgt-offset	[point2D!]
 			tgt-size	[point2D!]
 			viewbox		[block! none!]
 			aspect		[block!]
+			/topmost
 		][
 			buffer: make [] 12
-			if tgt-offset <> (0,0) [into buffer [translate (tgt-offset)]]
-			into buffer [clip 0x0 (tgt-size)]
+			unless topmost [
+				;; for topmost <svg> x and y must be ignored: https://www.w3.org/TR/SVG11/struct.html#SVGElement
+				if tgt-offset <> (0,0) [into buffer [translate (tgt-offset)]]
+				;; overflow='visible' for topmost and 'hidden' for others by default
+				;@@ need to support it for more control: https://www.w3.org/TR/SVG11/masking.html#OverflowProperty
+				into buffer [clip 0x0 (tgt-size)]
+			]
 			if viewbox [
 				set [shift: fit?:] aspect
 				set [src-offset: src-size:] viewbox
@@ -1169,7 +1173,8 @@ put system/codecs 'svg make object! [
 				foreach [word attr] [x: #x y: #y w: #width h: #height aspect: #preserveAspectRatio] [
 					set word get-value/for stack attr elem
 				]
-				append result emit-viewport as-point2D x y as-point2D w h scope/#viewBox aspect
+				topmost: (index? stack) <= 2
+				append result emit-viewport/:topmost as-point2D x y as-point2D w h scope/#viewBox aspect
 			]
 			
 			;; emit children (already processed and emitted into scope/content)
