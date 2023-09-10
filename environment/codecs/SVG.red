@@ -544,7 +544,7 @@ put system/codecs 'svg make object! [
 		transforms: make map! with :decode-transform [
 			"matrix"	[matrix [(nums)]]
 			"translate"	[translate (as-point2D nums/1 any [nums/2 0])]
-			"scale"		[scale (nums/1) (any [nums/2 1.0])]
+			"scale"		[scale (nums/1) (any [nums/2 nums/1])]
 			"rotate"	[rotate (nums/1) (as-point2D any [nums/2 0] any [nums/3 0])]
 			"skewY"		[skew (nums/1) 0.0]
 			"skewY"		[skew 0.0 (nums/1)]
@@ -559,9 +559,9 @@ put system/codecs 'svg make object! [
 		#assert [
 			[]                     = decode-transform ""
 			[translate (-10, -20)] = decode-transform "translate(-10,-20)"
-			[scale 2 1]            = decode-transform "scale(2)"
+			[scale 2 2]            = decode-transform "scale(2)"
 			[rotate 45 (0,0)]      = decode-transform "rotate(45)"
-			[translate (-10, -20) scale 2 1 rotate 45 (0,0) translate (5, 10)]
+			[translate (-10, -20) scale 2 2 rotate 45 (0,0) translate (5, 10)]
 			= decode-transform "translate(-10,-20) scale(2) rotate(45) translate(5,10)"
 			[translate 'fill-pen (-10, -20) scale 'fill-pen 2 1]
 			= specialize-transform decode-transform "translate(-10,-20) scale(2)" 'fill-pen
