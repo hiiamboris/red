@@ -268,7 +268,7 @@ xml: context [
 
 	; -- Prolog
 	prolog: [
-		XMLDecl
+		opt XMLDecl
 		opt [doctypedecl any Misc]
 		any Misc
 	]
@@ -286,7 +286,7 @@ xml: context [
 	; -- Document Type Definition
 	; ??: [p: (? p)]
 	doctypedecl: [
-		S+
+		S*
 		"<!DOCTYPE"
 		(doctype: none)
 		S+
