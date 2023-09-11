@@ -1136,13 +1136,10 @@ put system/codecs 'svg make object! [
 			#x [] #y [] #x1 [] #y1 [] #x2 [] #y2 [] #cx [] #cy [] #rx [] #ry [] #r [] #d [] #points [] #width [] #height []
 			#color [] #offset [] #stop-color [] #stop-opacity []
 			#patternTransform [] #gradientTransform [] #patternUnits [] #gradientUnits []
+			
+			;; just bloat; ignored
+			desc [] title [] parent [] space [] base [] #xmlns [] #version [] #svg [] #xlink []
 		];emit-rules: make map! [
-		
-		;; add useless bloat to ignore
-		hide [
-			bloat: [desc title parent space base #xmlns #version #svg #xlink]
-			foreach name bloat [emit-rules/:name: []]
-		]
 		
 		;; called on an element when all of its children are emitted into scope/content, and all attrs/props in the tree decoded
 		emit-element: function [stack [block!] dict [map!] /local xy len] [
