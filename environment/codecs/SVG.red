@@ -965,6 +965,8 @@ put system/codecs 'svg make object! [
 		emit-pen: function [pen [word!] color [tuple! word! string! none!] stack [block!] dict [map!] /blend opacity [number!]] [
 			result: only case [
 				color = 'current [reduce [pen get-value stack #color]]
+				;@@ <animate>'s 'fill' attribute conflicts with 'fill' property, so this is to ignore it:
+				find ["freeze" "remove"] color [copy []]
 				string? color [
 					ref: fetch-url color dict
 					unless all [ref map? :ref/1] [fail-at color]
@@ -1111,6 +1113,7 @@ put system/codecs 'svg make object! [
 			g			[]
 			svg			[]
 			stop		[(alpha-blend #stop-color #stop-opacity) (1.0 * #offset)]
+			animate		[]										;@@ not supported
 			
 			;; at place of definition gradient is emitted as [#(scope) stops...] block, and saved by #id in this form
 			;; at place of insertion it will be formed into a 'pen' command
