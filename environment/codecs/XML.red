@@ -226,12 +226,11 @@ xml: context [
 	cd-chars: complement charset "<&"
 ;	CharData: [not ["]]>" any cd-chars] any not cd-chars]
 	CharData: [
-		copy char-data any [
-			not #"<" [
-				["&amp;" | "&gt;" | "&lt;"] ; TODO: &apos; &quot
+		not #"<" (char-data: make {} 32)
+		collect after char-data any [
+			#"&" ["amp;" keep (#"&") | "gt;" keep (#">") | "lt;" keep (#"<")] ; TODO: &apos; &quot
 				; what about other escapes?
-			|	not "&" skip
-			]
+			|	not #"<" keep skip
 		]
 	]
 
