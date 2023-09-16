@@ -16,6 +16,8 @@ Red[
 
 xml: context [
 
+	entities: do #include %ML-entities.red
+
 ; -- options
 
 	default-opts: #(
@@ -93,6 +95,7 @@ xml: context [
 
 	key: value: att-name: att-value: att-length: att-ns: char-data:
 	doctype: verinfo: encinfo: stdinfo: namespace: nl?: attributes:
+	entity-name: entity-value:
 		none
 	cont-val: ""
 	value?: false
@@ -228,8 +231,8 @@ xml: context [
 	CharData: [
 		not #"<" (char-data: make {} 32)
 		collect after char-data any [
-			#"&" ["amp;" keep (#"&") | "gt;" keep (#">") | "lt;" keep (#"<")] ; TODO: &apos; &quot
-				; what about other escapes?
+			#"&" copy entity-name some alphanum #";"
+			if (entity-value: select/case entities entity-name) keep (entity-value)
 			|	not #"<" keep skip
 		]
 	]
