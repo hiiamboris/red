@@ -7,16 +7,23 @@ Red [
 	*	Status
 	
 		Decoder features supported or not:
-		+ internal named resource inclusion
+		+ internal named resource inclusion (partial support)
+		+ shapes supported by Draw
+		+ simple text strings
+		+ gradient and pattern pens
 		- animations (no framework in the language anyway atm)
 		- events (no Draw support, would require generating Spaces trees)
 		- external resources (should we load them (files/urls)?)
 		- CSS (needs CSS decoder, and compiler to apply it to the SVG tree)
+		- scripting (needs JS or other interpreters)
 		- namespaces (are just ignored)
 		- forward references (spec recommends writing SVG for single pass decoders anyway)
 		- validation (for simplicity assumes valid input)
 		- colorspaces support (ICC color formats and properties)
 		- named OS colors (need View support for them) - https://www.w3.org/TR/2008/REC-CSS2-20080411/ui.html#system-colors
+		- text scaling, spacing, rotation and alignment by a path
+		- filter effects (no Draw support)
+		- clipping/masking (only viewport-based clipping atm, no paths)
 		
 		Encoder: not yet
 		
@@ -42,6 +49,8 @@ Red [
 		- 'x' and 'y' attributes of the topmost SVG in the file must be ignored, and not result in coordinate translation
 		- some length units (including viewport dimensions) are relative to the viewport defined somewhere above
 		- other length units are relative to the font size, which can also be relative to the above font size, etc.
+		- gradients require their child elements (stops) to be emitted before gradients themselves can be emitted
+		- text requires font knowledge, so all font-related parent attributes have to be finalized in order to emit text
 		- there's also inheritance from CSS (and in CSS it is twisted from various sources of data), not supported yet
 		- inheritance is not even properly documented, I had to gather these (not exhaustive) rules from around the spec :/
 		  I'm dead sure none of the authors or SVG users understand how it all works together beyond obvious cases
@@ -49,13 +58,24 @@ Red [
 		
 		Minimal decoder workflow that enables this all:
 		1. extract element attributes into a map for ease of access, filtering some out based on namespace
-		2. replace "inherit" with the raw values from parent element (if any)
+		2. replace "inherit" with the raw values from parent element (if any) - before decoding
 		3. decode attributes into ready to use values (avoids multiple decoding later, replaces relative values with computed)
 		4. do 1-8 for all children (recursively) - they will access decoded attributes of the parents
 		5. emit 'transform' attribute since it has to precede all others
 		6. emit other decoded attributes
 		7. emit the element itself
 		8. emit children after the element
+		
+		Controversies that SVG produces here are:
+		- gradient elements require their child elements to be emitted first
+		- text elements require their parent attributes to be computed first, making lengths absolute
+		- inheritance (e.g. gradients referring to other gradients), ideally requires lengths not to be computed,
+		  but inherited as percents and other relative units, for later computation at the place of their insertion
+		This is an already conflicting set of constraints, unless we want to drown in special cases.
+		Chromium sacrifices the latter condition and computes gradient lengths at their place of definition, which is a good tradeoff.
+		
+		Defaults for each element cannot be decoded until they are required, because there's no context otherwise.
+		So decoding of defaults is done every time they are accessed.
 		
 		Each element's emitted Draw code is wrapped into a 'push' to prevent state spillage.
 		
@@ -72,7 +92,7 @@ Red [
 		Opacity of each gradient color has to be modified at place of insertion.
 		Any opacity at gradient's place of definition must be ignored, as well as transforms (experimental find).
 		E.g. if gradient A was defined with opacity O(A) and gradient B with opacity O(B) and B inherits from A
-		then when B is used as `fill` inside element with opacity O(F), what effective opacity will be just O(F).
+		then when B is used as `fill` inside element with opacity O(F), effective opacity will be just O(F).
 		  
 		Gradient can inherit from any other gradient (including of different type),
 		so it cannot be emitted at the place of definition without losing key/value structure required for inheritance.
@@ -107,7 +127,6 @@ Red [
 		In Chromium-based browsers, pattern P1 size is relative to F2, and children C3 size - to F1.
 		In Firefox-based browsers, pattern P1 size is relative to F3, and children C3 size - to F1.
 		And none of the options seems to make sense because it decouples pattern scale from its children.
-		What can be better than implementing it in a new way, making sizes relative to F1 for simplicity? :)
 
 	*	On units...		
 	
@@ -141,6 +160,29 @@ Red [
 		To support this 'feature' I have to manually track shape's starting offset ('start'),
 		and since shape may start with 'm' (relative move), to support this relativity
 		I also have to manually track where each command ends ('end'), making path decoding a mess.
+
+	*	On text...
+	
+		This one is immensely complex.
+		Even simple things like drawing a plain string at a specified offset require font metrics knowledge.
+		Text origin specified in SVG for Latin script is located at font's baseline, while in Red it's above ascender line.
+		So without precise metrics we can only roughly position the text vertically.
+		Also the effect of such coordinate choice is that text from multiple scripts and of multiple font sizes in SVG
+		will be automatically baseline-aligned, while we will have to split it on font changes and position separately.
+		
+		Text in SVG is structured as a tree, with each child affecting the next glyph offset, in parents as well.
+		This requires measurement of every text string to track the offset.
+		And that requires knowledge of the font at the time of measurement,
+		so text can only be emitted after all of it's parents attributes are finalized,
+		because font consists of various attributes which also depend on viewport and font size of parents.
+		
+		SVG allows to shift and rotate every isolated letter, which may make decoding extremely inefficient.
+		Rendering of bidirectional text or top-down text will likely require manual positioning of every glyph too.
+		
+		Red also does not support separate pens for text fill and outline, while SVG does.
+		Nor it supports aligning text along a predefined path.
+		Finally SVG allows to define own glyphs and whole fonts using paths, as well as loading webfonts,
+		and that all we'll unlikely be able to handle with any reasonable efficiency.
 	}
 ];Red [
 
@@ -159,7 +201,11 @@ put system/codecs 'svg make object! [
 	]
 	
 	;; block! 'data' allows one to manually decode the XML, and optionally compile CSS into it
-	decode: function [data [string! binary! file! block!]] [
+	decode: function [
+		"Decode SVG into a Draw block"
+		data [string! binary! file! block!] "Original file contents or decoded XML in 'compact' format"
+		/on canvas [pair! point2D!] "Initial viewport size (defaults to 100x100)"
+	][
 		if file?   data [
 			data: apply 'read [data /binary %.svgz = suffix? data]
 		]
@@ -169,7 +215,7 @@ put system/codecs 'svg make object! [
 		]
 		if string? data [data: load-xml/as data 'compact]
 		
-		data: internal/decode data make [] 10 make #() 20
+		data: internal/decode/:on data make [] 10 make #() 20 canvas
 		
 		unless empty? data [
 			data: compose/deep/only [
@@ -177,7 +223,7 @@ put system/codecs 'svg make object! [
 			]
 		]
 		internal/font-cache: make map! 4				;-- reallocate cache to free resources
-		data											;@@ return also size (if defined)?
+		data
 	]
 	
 	verbose?: yes										;@@ turn it off when merging
@@ -314,6 +360,263 @@ put system/codecs 'svg make object! [
 			any [length-types/:attr 'xy]
 		]
 		
+		;; attribute types that use scales from the stack
+		relative:		make hash! [length lengths? #[true]] 
+		
+		;; elements that are not emitted and whose children are never emitted, but an #id may be assigned
+		ignored:		make hash! [defs pattern linearGradient radialGradient #[true]]
+		
+		;; elements that accept 'transform's - https://www.w3.org/TR/SVG11/attindex.html
+		transforming:	make hash! [defs g circle ellipse rect line path polygon polyline #[true]]	;@@ to be extended
+		
+		;; elements that establish a new viewport (and support viewBox) - https://www.w3.org/TR/SVG11/attindex.html
+		deforming:		make hash! [svg pattern #[true]]		;@@ to be extended
+		
+		;; elements that do not require a 'push []' wrapper
+		flat:			make hash! [stop #[true]]
+		
+		;; elements that emit 'text' draw commands (in all other elements text is ignored)
+		textual:		make hash! [text tspan #[true]]
+		
+		;; defaults must be strings - cannot be decoded without context (e.g. 100% has no meaning in a vacuum)
+		defaults: #(
+			all #(										;-- applies to all SVG elements
+				;; specials
+				content				[]					;-- used by gradients/patterns flattening
+				font				#[none]				;-- reassigned below
+				viewport			(100,100)			;-- arbitrary, to avoid errors ;@@ should be user-provided
+				#font-size			"12"				;-- ditto, reassigned below
+				
+				;; https://www.w3.org/TR/SVG11/propidx.html - selected property defaults, to be extended once more are supported
+				#color				"black"				;-- reassigned below
+				#fill				"black"
+				#fill-opacity		"1"
+				#fill-rule			"nonzero"
+				#opacity			"1"					;-- affects pen, fill, gradient stops
+				#stop-color			"black"
+				#stop-opacity		"1"
+				#stroke				"none"
+				#stroke-linecap		"butt"
+				#stroke-linejoin	"miter"
+				#stroke-opacity		"1"
+				#stroke-width		"1"
+				#text-anchor		"start"
+				#direction			"ltr"
+				#text-decoration	"none"
+			
+				;; https://www.w3.org/TR/SVG11/attindex.html - attribute defaults are buried deep in the docs and depend on the element
+				#transform			""
+				#preserveAspectRatio "xMidYMid meet"	;-- https://www.w3.org/TR/SVG11/coords.html#PreserveAspectRatioAttribute
+			)
+			svg		#(#x  "0" #y  "0" #width "100%" #height "100%" #baseProfile "none")
+			use		#(#x  "0" #y  "0")
+			line	#(#x1 "0" #y1 "0" #x2 "0" #y2 "0")
+			rect	#(#x  "0" #y  "0")					;-- 'rx' and 'ry' need special logic
+			circle	#(#cx "0" #cy "0")
+			ellipse	#(#cx "0" #cy "0")
+			radialGradient #(
+				#cx "50%" #cy "50%" #r "50%" #spreadMethod "pad"
+				#gradientTransform "" #gradientUnits "objectBoundingBox"	;-- 'fx' and 'fy' need special logic
+			)
+			linearGradient #(
+				#x1 "0%" #y1 "0%" #x2 "100%" #y2 "0%" #spreadMethod "pad"
+				#gradientTransform "" #gradientUnits "objectBoundingBox"
+			)
+			pattern #(
+				#x "0" #y "0" #width "0" #height "0" #patternTransform ""
+				#patternUnits "objectBoundingBox" #patternContentUnits "userSpaceOnUse"
+			)
+			text  #(#x "0" #y "0"); #dx "" #dy "" #rotate "")
+			tspan #(#x "0" #y "0")
+		)
+		;; it's up to us to decide starting color, so OS pen color makes most sense
+		attempt [put defaults/all #color rejoin ["#" enbase/base to binary! system/view/metrics/colors/text 16]]
+		;; for font we can use system default size
+		put defaults/all #font-size form any [attempt [system/view/fonts/size] 12]
+		;; default Draw font
+		defaults/all/font: make font! []
+		
+		;; to some upper attributes/properties I need access from any depth:
+		;; for 'opacity' I need to know all the values in the stack, for others - only the last explicit value
+		deep-attrs: make hash! [
+			#fill-opacity #stroke-opacity				;-- used to apply opacity when fill/stroke value changes
+			#stop-opacity								;-- used when when forming gradient stops
+			#font-size #x-height						;-- used to measure em/ex unit size, and to construct font
+			#font-family #font-weight #font-style		;-- used to construct font object
+			#text-anchor #text-decoration #direction	;-- affect every child 'text' emitted
+			#color										;-- used to give value to pen='currentColor'
+			viewport									;-- used to scale percent unit
+			font										;-- used to measure text spans
+			#[true]										;-- this just simplifies lookup by enabling paths
+		]
+		
+		;; this is used upon pen emission, assumes that map contains viewport and #font-size - must be set
+		maybe-get-from-map: function [map [map!] attr [issue! word!]] [
+			any [
+				map/:attr
+				if default: any [
+					select defaults/(map/element) attr
+					defaults/all/:attr
+				][
+					decode-attr default tail reduce [map] attr
+				]
+			]
+		]
+		
+		;@@ get rid of elem-name, use stack/-1/element
+		maybe-get-value: function [stack [block!] attr [issue! word!] /for elem-name [word!]] [
+			any [
+				either deep-attrs/:attr [
+					pos: stack
+					while [not head? pos] [						;@@ use for-each/reverse
+						pos: back pos
+						if value: pos/1/:attr [break]
+					]
+					value
+				][
+					stack/-1/:attr
+				]
+				if default: any [
+					if for [select defaults/:elem-name attr]
+					defaults/all/:attr
+				][
+					if string? default [default: decode-attr default stack attr]
+					default
+				]
+			]
+		]
+		
+		get-value: function [stack [block!] attr [issue! word!] /for elem-name [word!]] [
+			any [
+				maybe-get-value/:for stack attr elem-name
+				cause-error 'script 'no-arg [any [elem-name if stack/-1 [stack/-1/element]] attr]
+			]
+		]
+		
+		get-total-opacity: function [stack [block!]] [
+			opacity: 1.0
+			foreach elem head stack [							;@@ use fold/accumulate + map-each
+				opacity: opacity * any [elem/#opacity 1]
+			]
+			opacity
+		]
+		
+		fetch-url: function [url [string!] dict [map!]] [		;@@ only supports internal URLs for now
+			any [
+				all [url/1 = #"#" dict/(next url)]
+				also none warn ["Unknown resource ID: " url]
+			]
+		]
+		
+		from: make op! function [string [string!] options [map!]] [
+			any [options/:string  fail-at string]
+		]
+		
+		;; decoders have 3 arguments: string [string!] and optional stack [block!] and attr [issue! word!]
+		;; stack is required by font-size which has to be inherited always as computed value
+		;;   so font-size has to become a final number at decoding stage
+		;; same for viewport: since content is emitted before parents, content needs access to final viewport size
+		;;   but viewport cannot be handled here because it's not a single attribute but a mess
+		;; attr is required by lengths where final value depends on element name
+		decoders: make map! [
+			units		[string from #("userSpaceOnUse" user "objectBoundingBox" object)]
+			spread		[string from #("reflect" reflect "repeat" repeat "pad" pad)]
+			linecap		[string from #("butt" flat "square" square "round" round)]
+			;; https://www.w3.org/TR/SVG11/painting.html#StrokeProperties
+			;; spec says default miter-limit is 4x so "miter" in SVG => miter-bevel in Draw:
+			linejoin	[string from #("round" round "bevel" bevel "miter" miter-bevel)]
+			transform	[decode-transform   string]
+			aspect		[decode-aspect      string]
+			color		[decode-color       string stack]
+			numbers		[decode-numbers     string]
+			length		[decode-length      string stack attr]	;-- integer/float + unit/percent
+			lengths?	[decode-lengths*    string stack attr]	;-- single or multiple: integer/float + unit/percent, depends on element
+			number		[decode-number      string]				;-- integer, float or percent
+			points		[decode-points      string]				;-- int/float couples to convert to point2Ds
+			percentage	[clip 0 1 decode-number string]			;-- spec prescribes clipping of opacities and gradient offsets
+			path		[decode-path        string] 
+			font-size	[decode-font-size   string stack]
+			font-family	[decode-font-family string]
+			font-weight	[string from font-weights]
+			font-style	[string from #("normal" normal "italic" italic "oblique" oblique)]
+			text-anchor	[string from #("start" 0.0 "middle" 0.5 "end" 1.0)]
+			text-dir	[string from #("ltr" right "rtl" left)]
+			text-deco	[string from #("none" none "underline" underline "overline" overline "line-through" strike "blink" blink)]
+		]
+		hide [
+			foreach [type body] decoders [				;@@ use map-each
+				decoders/:type: function [string stack attr] body
+			]
+		]
+		
+		attr-types: #(
+			;; #x/y/dx/dy have conflicting syntaxes: multiple lengths in <text>, single in shapes
+			#x lengths? #y lengths? #dx lengths? #dy lengths?
+			#x1 length #x2 length #cx length #fx length #rx length #refx length #width  length #markerwidth  length
+			#y1 length #y2 length #cy length #fy length #ry length #refy length #height length #markerheight length
+			#z length #r length		;@@ lot more to add...
+			#rotate					numbers
+			#stroke-width			length
+			#stroke-linecap			linecap
+			#stroke-linejoin		linejoin
+			#color					color
+			#stroke					color
+			#fill					color
+			#opacity				percentage
+			#stroke-opacity			percentage
+			#fill-opacity			percentage
+			#gradientUnits			units
+			#patternUnits			units
+			#patternContentUnits	units
+			#gradientTransform		transform
+			#patternTransform		transform
+			#spreadMethod			spread
+			#offset					percentage			;-- gradient stop, clipped: https://www.w3.org/TR/SVG11/pservers.html#StopColorProperty
+			#stop-opacity			percentage
+			#stop-color				color
+			#viewBox				points
+			#preserveAspectRatio	aspect
+			#transform				transform
+			#d						path				;-- path dialect
+			#points					points				;-- polygon, line, etc.
+			#font-size				font-size
+			#font-family			font-family
+			#font-weight			font-weight
+			#font-style				font-style
+			#text-anchor			text-anchor
+			#direction				text-dir
+			#text-decoration		text-deco
+		)
+		
+		decode-attr: func [string [string!] stack [block!] attr [issue!]] [
+			decoder: any [:decoders/(attr-types/:attr) :return]	;-- return = fallback to no decoding
+			decoder string stack attr
+		]
+		
+		;; see the header: font-size has to be decoded before the rest, since lengths may need to use it
+		;; color has to be decoded first too, because pens in the same element may refer to it as 'currentColor'
+		ordered: make hash! [#font-size #color] 
+		
+		decode-attributes: function [
+			"Decode all of the element's attributes into Red values"
+			stack [block!]
+		][
+			list: make hash! keys-of scope: stack/-1
+			list: difference ordered difference list ordered	;-- enforce order
+			foreach attr list [									;@@ use map-each to filter attrs
+				if issue? attr [scope/:attr: decode-attr scope/:attr stack attr]
+			]                                                               
+			;; font depends on multiple attributes and so needs assembly after decoding
+			unless empty? intersect keys-of scope [
+				#font-size #font-family #font-weight #font-style
+			] [scope/font: make-font stack]
+			if deforming/(scope/element) [				;@@ what if it has no geometry attached?
+				scope/viewport: compute-viewport stack
+			]
+		]
+
+		
+		
 		decode-number: function [string [string!]] [	;-- for single-number values only
 			parse string [wsc* =any-number= wsc* end | (fail-at string)]
 			transcode/one string
@@ -337,60 +640,102 @@ put system/codecs 'svg make object! [
 			[1 2 3] = decode-numbers " 1.0,0.2e1, 3) "
 		]
 		
-		decode-length: function [string [string!]] [	;-- number with unit
+		compute-length: function [number [string!] unit [string!] end [string!] stack [block!] attr [issue!]] [
+			scope: stack/-1
+			value: load-token number unit
+			unless tail? end [unit: copy/part unit end]	;-- trailing whitespace must be ignored
+			scale: any [
+				units/:unit
+				switch unit [
+					"%" [
+						viewport: get-value/for stack 'viewport scope/element
+						0.01 * switch type: length-type? attr [
+							x y [viewport/:type]
+							xy  [divide rad? viewport sqrt2]	;-- https://www.w3.org/TR/SVG11/coords.html#Units
+						]
+					]
+					;@@ "ex" requires "x-height" font metric ideally (or attribute support), right now works like IE
+					"em" "ex" [
+						font-size: get-value/for stack #font-size scope/element
+						font-size / pick [1 2] "em" = unit
+					]
+				]
+				fail-at number
+			]
+			scale * value
+		]
+		
+		decode-length: function [string [string!] stack [block!] attr [issue!]] [	;-- number with unit
 			parse string [
 				wsc* number: =unsafe-number= unit: [to white! | to end] end:
 			|	p: (fail-at p)
 			]
-			number: load-token number unit
-			unless tail? end [unit: copy/part unit end]	;-- trailing whitespace must be ignored
-			reduce [number unit]
+			compute-length number unit end stack attr
 		]
 		
 		#assert [
-			[0   ""  ] = decode-length "0"
-			[1   ""  ] = decode-length "1.0"
-			[1   "px"] = decode-length "1.0px"
-			[2   "pc"] = decode-length " 2.0pc "
-			[1   "in"] = decode-length "1in"
-			[10  "%" ] = decode-length "10.0%"
-			[0.5 "em"] = decode-length "0.5em"
+			0  = decode-length "0"       tail [#(element: svg viewport: (30,20) #font-size 10)] #x
+			1  = decode-length "1"       tail [#(element: svg viewport: (30,20) #font-size 10)] #x
+			1  = decode-length "1px"     tail [#(element: svg viewport: (30,20) #font-size 10)] #x
+			1  = decode-length "1.0px"   tail [#(element: svg viewport: (30,20) #font-size 10)] #x
+			32 = decode-length " 2.0pc " tail [#(element: svg viewport: (30,20) #font-size 10)] #x
+			96 = decode-length "1in"     tail [#(element: svg viewport: (30,20) #font-size 10)] #x
+			3  = decode-length "10%"     tail [#(element: svg viewport: (30,20) #font-size 10)] #x
+			2  = decode-length "10%"     tail [#(element: svg viewport: (30,20) #font-size 10)] #y
+			5  = decode-length "0.5em"   tail [#(element: svg viewport: (30,20) #font-size 10)] #x
+			3  = decode-length "10%"     tail [#(element: svg viewport: (30,30) #font-size 10)] #xy
 		]
 		
-		;; returns: tuple!, 'off, 'current, gradient "#id", or none if failed to decode
-		decode-color: function [string [string!]] [
-			loop 1 [
-				parse string [
-					"none" end (color: 'off)
-				|	"currentColor" end (color: 'current)	;-- handled by the emitter
-				|	"rgb(" (buf: clear []) 3 [			;-- rgb(1,2,3) or rgb(1%,2%,3%)
-						ws* s: =basic-number= e: (n: load-token s e)
-						opt ["%" (n: n * 2.55)] opt "," (append buf n)
-					] ws* ")" (color: to tuple! buf)
-				|	"#" 1 2 [3 hex-digit!] end (		;-- #def or #ddeeff
-						color: hex-to-rgb transcode/one string
-					)
-				|	"url(" ws* copy color to [#")" | white!] thru #")"	;-- url(#myGradient) etc
-					;@@ next (fallback) color is ignored atm, but should be used
-				|	some alpha! (						;-- 'aqua' etc
-						unless color: named-colors/:string [break]
-						;@@ add support for OS colors https://www.w3.org/TR/2008/REC-CSS2-20080411/ui.html#system-colors
-					)
-				|	(break)
-				]
-				return color
+		decode-lengths: function [string [string!] stack [block!] attr [issue!]] [	;-- zero or more numbers with units
+			parse string [wsc* collect any [
+				number: =unsafe-number= unit: [to white! | to end] end: wsc*
+				keep (compute-length number unit end stack attr)
+			|	end | (p: fail-at p)					;@@ or ignore invalid trail?
+			]]
+		]
+		
+		#assert [
+			[3 1] = decode-lengths "10% 1px" tail [#(element: svg viewport: (30,20))] #x
+		]
+		
+		;; workaround for #x and #y attributes having different formats across elements
+		decode-lengths*: function [string [string!] stack [block!] attr [issue!]] [
+			element: all [scope: stack/-1  scope/element]
+			decoder: either textual/:element [:decode-lengths][:decode-length]
+			decoder string stack attr
+		]
+		
+		;; returns: tuple!, 'off, string! (gradient/pattern #id), or none if failed to decode
+		decode-color: function [string [string!] stack [block!]] [
+			parse string [
+				"none" end (color: 'off)
+			|	"currentColor" end (color: get-value stack #color)
+			|	"rgb(" (buf: clear []) 3 [				;-- rgb(1,2,3) or rgb(1%,2%,3%)
+					ws* s: =basic-number= e: (n: load-token s e)
+					opt ["%" (n: n * 2.55)] opt "," (append buf n)
+				] ws* ")" (color: to tuple! buf)
+			|	"#" 1 2 [3 hex-digit!] end (			;-- #def or #ddeeff
+					color: hex-to-rgb transcode/one string
+				)
+			|	"url(" ws* copy color to [#")" | white!] thru #")"	;-- url(#myGradient) etc - needs dict access
+				;@@ next (fallback) color is ignored atm, but should be used
+			|	some alpha! (							;-- 'aqua' etc
+					color: named-colors/:string
+					;@@ add support for OS colors https://www.w3.org/TR/2008/REC-CSS2-20080411/ui.html#system-colors
+				)
 			]
-			warn ["Unsupported color '"mold string"' is ignored"]
-			none
+			unless color [warn ["Unsupported color '"string"' is ignored"]]
+			color
 		]
 		
 		#assert [
-			255.255.255 = decode-color "#FfF"
-			255.255.255 = decode-color "#fFFffF"
-			1.2.3       = decode-color "rgb(1,2,3)"
-			0.0.0       = decode-color "black"
-			'off        = decode-color "none"
-			'current    = decode-color "currentColor"
+			255.255.255 = decode-color "#FfF"         tail [#(#color 2.3.4)]
+			255.255.255 = decode-color "#fFFffF"      tail [#(#color 2.3.4)]
+			1.2.3       = decode-color "rgb(1,2,3)"   tail [#(#color 2.3.4)]
+			0.0.0       = decode-color "black"        tail [#(#color 2.3.4)]
+			'off        = decode-color "none"         tail [#(#color 2.3.4)]
+			2.3.4       = decode-color "currentColor" tail [#(#color 2.3.4)]
+			"#ref"      = decode-color "url(#ref)"    tail [#(#color 2.3.4)]
 		]
 		
 		;; https://www.w3.org/TR/SVG11/implnote.html#ErrorProcessing prescribes to:
@@ -400,16 +745,14 @@ put system/codecs 'svg make object! [
 		;; also, specs don't mention it, but "100-200" is a valid (100, -200) point in polylines
 		;; as evidenced by (approved) test %shapes-grammar-01-f.svg and browsers decoding it fine
 		decode-points: function [string [string!]] [
-			buffer: make [] (length? string) / 4
 			parse string [
-				collect after buffer any [
+				collect any [
 					wsc* x: =unsafe-number= xe: wsc* y: =unsafe-number= ye:
 					keep (as-point2D load-token x xe load-token y ye)
 				] wsc*
 				;; warn but accept any invalid trailing data
 				[end | p: (warn ["Invalid 'points' data at: "mold/part p 100])]
 			]
-			buffer
 		]
 		
 		#assert [
@@ -563,121 +906,74 @@ put system/codecs 'svg make object! [
 			[rotate 45 (0,0)]      = decode-transform "rotate(45)"
 			[translate (-10, -20) scale 2 2 rotate 45 (0,0) translate (5, 10)]
 			= decode-transform "translate(-10,-20) scale(2) rotate(45) translate(5,10)"
-			[translate 'fill-pen (-10, -20) scale 'fill-pen 2 1]
+			[translate 'fill-pen (-10, -20) scale 'fill-pen 2 2]
 			= specialize-transform decode-transform "translate(-10,-20) scale(2)" 'fill-pen
 		]
 		
 		;; https://www.w3.org/TR/2008/REC-CSS2-20080411/fonts.html#value-def-absolute-size
 		;; "On a computer screen a scaling factor of 1.2 is suggested between adjacent indexes"
-		;@@ remove rounding when Red supports float sizes
-		font-sizes: make map! compose with :system/view/fonts [	;@@ or use a predefined 12px for 'medium'?
-			"xx-small"	(size / 1.728 1)
-			"x-small"	(size / 1.44 1)
-			"small"		(size / 1.2 1)
-			"medium"	(size)
-			"large"		(size * 1.2 1)
-			"x-large"	(size * 1.44 1)
-			"xx-large"	(size * 1.728 1)
+		font-sizes: make map! compose with :system/view/fonts [
+			"xx-small"	(size / 1.728)
+			"x-small"	(size / 1.44)
+			"small"		(size / 1.2)
+			"medium"	(size)							;@@ or use a predefined 12px for 'medium'?
+			"large"		(size * 1.2)
+			"x-large"	(size * 1.44)
+			"xx-large"	(size * 1.728)
 		]
 		
-		;; unlike other decoders this has to finalize font-size as it has to be inherited as computed value
-		;; so it needs stack access
-		;; it also has to take scales from the parent element(s), not the current one
+		;; this has to take scales from the parent element(s), not the current one
 		;; else font-size of "2em" will cyclically depend on itself
-		;; returned size is line-height size in pixels, not Red font size
+		;; returned size is line-height size in pixels, not Red font size (necessary for em/ex lengths)
 		decode-font-size: function [string [string!] stack [block!]] [
 			any [
 				font-sizes/:string
 				if op: switch string ["larger" [:*] "smaller" [:/]] [
 					(get-value back stack #font-size) op 1.2
 				]
-				if block: decode-length string [
-					emit-length block #font-size back stack
-				]
+				decode-length string back stack #font-size
 			]
 		]
 		
-		pick-from-set: function [string [string!] options [map!]] [
-			any [options/:string  fail-at string]
-		]
-		
-		;; decoders have 2 arguments: string [string!] and optional stack [block!]
-		;; stack is required by font-size which has to be inherited always as computed value
-		;;   so font-size has to become a final number at decoding stage
-		;; same for viewport: since content is emitted before parents, content needs access to final viewport size
-		;;   but viewport cannot be handled here because it's not a single attribute but a mess
-		decoders: make map! [
-			units		[pick-from-set string #("userSpaceOnUse" user "objectBoundingBox" object)]
-			spread		[pick-from-set string #("reflect" reflect "repeat" repeat "pad" pad)]
-			linecap		[pick-from-set string #("butt" flat "square" square "round" round)]
-			;; https://www.w3.org/TR/SVG11/painting.html#StrokeProperties
-			;; spec says default miter-limit is 4x so "miter" in SVG => miter-bevel in Draw:
-			linejoin	[pick-from-set string #("round" round "bevel" bevel "miter" miter-bevel)]
-			transform	[decode-transform string]
-			aspect		[decode-aspect string]
-			color		[decode-color string]
-			length		[decode-length string]			;-- integer/float + unit/percent
-			number		[decode-number string]			;-- integer, float or percent
-			points		[decode-points string]			;-- int/float couples to convert to point2Ds
-			percentage	[clip 0 1 decode-number string]	;-- spec prescribes clipping of opacities and gradient offsets
-			path		[decode-path string]
-			font-size	[decode-font-size string stack]
-		]
-		hide [
-			foreach [type body] decoders [				;@@ use map-each
-				decoders/:type: function [string stack] body
+		generic-fonts: #(
+			"serif"			serif
+			"sans-serif"	sans-serif
+			"cursive"		serif
+			"fantasy"		serif
+			"monospace"		fixed
+		)
+			
+		;@@ without REP #139 there's no way to know if given font is supported,
+		;@@ so we can only blindly choose the first of given alternatives and hope for the best
+		decode-font-family: function [string [string!] /local name] [
+			parse string [ws* copy name [to #"," | to end]]		;@@ grammar is unknown
+			trim name
+			if #"'" = first name [take name]					;@@ use 'trim/with' if /with becomes sane
+			if #"'" = last  name [take/last name]
+			if generic: generic-fonts/:name [
+				name: system/view/fonts/:generic
 			]
+			name
 		]
 		
-		attr-types: #(
-			#x length #x1 length #x2 length #cx length #dx length #fx length #rx length #refx length #width  length #markerwidth  length
-			#y length #y1 length #y2 length #cy length #dy length #fy length #ry length #refy length #height length #markerheight length
-			#z length #r length		;@@ lot more to add...
-			#stroke-width			length
-			#stroke-linecap			linecap
-			#stroke-linejoin		linejoin
-			#color					color
-			#stroke					color
-			#fill					color
-			#opacity				percentage
-			#stroke-opacity			percentage
-			#fill-opacity			percentage
-			#gradientUnits			units
-			#patternUnits			units
-			#patternContentUnits	units
-			#gradientTransform		transform
-			#patternTransform		transform
-			#spreadMethod			spread
-			#offset					percentage			;-- gradient stop, clipped: https://www.w3.org/TR/SVG11/pservers.html#StopColorProperty
-			#stop-opacity			percentage
-			#stop-color				color
-			#viewBox				points
-			#preserveAspectRatio	aspect
-			#transform				transform
-			#d						path				;-- path dialect
-			#points					points				;-- polygon, line, etc.
-			#font-size				font-size
+		;; numbers come from a set, so I wonder what those trailing zeroes are for :/
+		font-weights: #(
+			"normal"	normal
+			"bold"		bold
+			"bolder"	bold
+			"lighter"	normal
+			"100"		normal
+			"200"		normal
+			"300"		normal
+			"400"		normal
+			"500"		normal
+			"600"		bold
+			"700"		bold							;-- normative weight for 'bold' is 700
+			"800"		bold
+			"900"		bold
 		)
 		
-		decode-attr: func [attr [issue!] string [string!] stack [block!]] [
-			any [
-				if decoder: :decoders/(attr-types/:attr) [
-					decoder string stack
-				]
-				string									;-- fallback to no decoding
-			]
-		]
-				
-		decode-attributes: function [
-			"Decode all of the element's attributes into Red values"
-			stack [block!]
-		][
-			foreach [attr string] scope: stack/-1 [				;@@ use map-each to filter attr
-				if issue? attr [scope/:attr: decode-attr attr string stack]
-			]                                                               
-		]
-
-		decode-viewport: function [stack [block!]] [
+		compute-viewport: function [stack [block!]] [
 			scope: stack/-1
 			foreach [word attr] [w: #width h: #height] [
 				set word get-value/for stack attr scope/element
@@ -688,175 +984,12 @@ put system/codecs 'svg make object! [
 			any [src-size tgt-size]
 		]
 		
-		;; defaults must be in format produced by decoders, but strings are fine too, easier to verify (decoded below)
-		defaults: #(
-			all #(										;-- applies to all SVG elements
-				;; specials
-				content				[]					;-- used by gradients/patterns flattening
-				viewport			(100,100)			;-- arbitrary, to avoid errors ;@@ should be user-provided
-				#font-size			12					;-- ditto, reassigned below
-				
-				;; https://www.w3.org/TR/SVG11/propidx.html - selected property defaults, to be extended once more are supported
-				#color				"black"				;-- reassigned below
-				#fill				"black"
-				#fill-opacity		"1"
-				#fill-rule			"nonzero"
-				#opacity			"1"					;-- affects pen, fill, gradient stops
-				#stop-color			"black"
-				#stop-opacity		"1"
-				#stroke				"none"
-				#stroke-linecap		"butt"
-				#stroke-linejoin	"miter"
-				#stroke-opacity		"1"
-				#stroke-width		"1"
-			
-				;; https://www.w3.org/TR/SVG11/attindex.html - attribute defaults are buried deep in the docs and depend on the element
-				#transform			""
-				#preserveAspectRatio "xMidYMid meet"	;-- https://www.w3.org/TR/SVG11/coords.html#PreserveAspectRatioAttribute
-			)
-			svg		#(#x  "0" #y  "0" #width "100%" #height "100%" #baseProfile "none")
-			use		#(#x  "0" #y  "0")
-			line	#(#x1 "0" #y1 "0" #x2 "0" #y2 "0")
-			rect	#(#x  "0" #y  "0")					;-- 'rx' and 'ry' need special logic
-			circle	#(#cx "0" #cy "0")
-			ellipse	#(#cx "0" #cy "0")
-			radialGradient #(
-				#cx "50%" #cy "50%" #r "50%" #spreadMethod "pad"
-				#gradientTransform "" #gradientUnits "objectBoundingBox"	;-- 'fx' and 'fy' need special logic
-			)
-			linearGradient #(
-				#x1 "0%" #y1 "0%" #x2 "100%" #y2 "0%" #spreadMethod "pad"
-				#gradientTransform "" #gradientUnits "objectBoundingBox"
-			)
-			pattern #(
-				#x "0" #y "0" #width "0" #height "0" #patternTransform ""
-				#patternUnits "objectBoundingBox" #patternContentUnits "userSpaceOnUse"
-			)
-		)
-		;; it's up to us to decide starting color, so OS pen color makes most sense
-		attempt [put defaults/all #color system/view/metrics/colors/text]
-		;; for font we can use system default size
-		attempt [put defaults/all #font-size any [system/view/fonts/size 12]]
-		
-		hide [
-			foreach [elem map] defaults [
-				foreach [attr value] map [
-					if string? :value [map/:attr: decode-attr attr value []]
-				]
-			]
-		]
-			
-		;; to some upper attributes/properties I need access from any depth:
-		;; for 'opacity' I need to know all the values in the stack, for others - only the last explicit value
-		deep-attrs: make hash! [
-			#fill-opacity #stroke-opacity				;-- used to apply opacity when fill/stroke value changes
-			#stop-opacity								;-- used when when forming gradient stops
-			#font-size #x-height						;-- used to measure em/ex unit size
-			#color										;-- used to give value to pen='currentColor'
-			viewport									;-- used to scale percent unit
-			#[true]										;-- this just simplifies lookup by enabling paths
-		]
-		
-		;; this assumes that map contains viewport and #font-size - must be set
-		maybe-get-from-map: function [map [map!] attr [issue! word!]] [
-			all [
-				value: any [
-					map/:attr
-					select defaults/(map/element) attr
-					defaults/all/:attr
-				]
-				attr-types/:attr = 'length
-				value: emit-length value attr tail reduce [map]
-			]
-			value
-		]
-		
-		maybe-get-value: function [stack [block!] attr [issue! word!] /for elem-name [word!]] [
-			all [
-				value: any [
-					either deep-attrs/:attr [
-						pos: stack
-						while [not head? pos] [					;@@ use foreach/reverse
-							pos: back pos
-							if value: pos/1/:attr [break]
-						]
-						value
-					][
-						stack/-1/:attr
-					]
-					if for [select defaults/:elem-name attr]
-					defaults/all/:attr
-				]
-				attr-types/:attr = 'length
-				value: emit-length value attr stack
-			]
-			value
-		]
-		
-		get-value: function [stack [block!] attr [issue! word!] /for elem-name [word!]] [
-			any [
-				maybe-get-value/:for stack attr elem-name
-				cause-error 'script 'no-arg [elem-name attr]
-			]
-		]
-		
-		get-total-opacity: function [stack [block!]] [
-			opacity: 1.0
-			foreach elem head stack [							;@@ use fold/accumulate + map-each
-				opacity: opacity * any [elem/#opacity 1]
-			]
-			opacity
-		]
-		
-		fetch-url: function [url [string!] dict [map!]] [		;@@ only supports internal URLs for now
-			any [
-				all [url/1 = #"#" dict/(next url)]
-				also none warn ["Unknown resource ID: " url]
-			]
-		]
-		
 		
 		
 		;; * * * * * * * * * * *
 		;; *** DRAW EMITTERS ***
 		;; * * * * * * * * * * *
 		
-		
-		emit-length: function [length [block!] "[number unit]" name [issue!] stack [block!]] [
-			set [number: unit:] length
-			scope: stack/-1
-			scale: any [
-				units/:unit
-				switch unit [
-					"%" [
-						viewport: get-value/for stack 'viewport scope/element
-						0.01 * switch type: length-type? name [
-							x y [viewport/:type]
-							xy  [divide rad? viewport sqrt2]	;-- https://www.w3.org/TR/SVG11/coords.html#Units
-						]
-					]
-					;@@ "ex" requires "x-height" font metric ideally (or attribute support), right now works like IE
-					"em" "ex" [
-						font-size: get-value/for stack #font-size scope/element
-						font-size / pick [1 2] "em" = unit
-					]
-				]
-				fail-at length
-			]
-			scale * number
-		]
-		
-		#assert [
-			0  = emit-length [0   ""  ] #x  tail [#(element: svg viewport: (30,20) #font-size 10)]
-			1  = emit-length [1   ""  ] #x  tail [#(element: svg viewport: (30,20) #font-size 10)]
-			1  = emit-length [1   "px"] #x  tail [#(element: svg viewport: (30,20) #font-size 10)]
-			32 = emit-length [2   "pc"] #x  tail [#(element: svg viewport: (30,20) #font-size 10)]
-			96 = emit-length [1   "in"] #x  tail [#(element: svg viewport: (30,20) #font-size 10)]
-			3  = emit-length [10  "%" ] #x  tail [#(element: svg viewport: (30,20) #font-size 10)]
-			2  = emit-length [10  "%" ] #y  tail [#(element: svg viewport: (30,20) #font-size 10)]
-			5  = emit-length [0.5 "em"] #x  tail [#(element: svg viewport: (30,20) #font-size 10)]
-			3  = emit-length [10  "%" ] #xy tail [#(element: svg viewport: (30,30) #font-size 10)]
-		]
 		
 		apply-opacity: function [block [block!] opacity [number!] /deep] [
 			if opacity < 1 [
@@ -876,12 +1009,11 @@ put system/codecs 'svg make object! [
 		;; see the header on all the intricacies involved here for gradients and patterns
 		;; in short, must emit a map (to be able to combine it),
 		;; then later apply opacity and specialize pen transform (for patterns - deeply affects all colors)
-		;; only single inheritance seems to be supported by browsers so I'm doing that too
 		;; pattern content can be emitted as /content, because pattern always enforces a viewport
 		;@@ TODO: decide at what point to compute gradient/pattern lengths (see the header notes)
 		flatten-pen: function [stack [block!] dict [map!] type [word!]] [
 			scope: stack/-1
-			unless id: scope/#id [exit]					;-- gradient without id cannot be used, so ignore it
+			unless scope/#id [exit]						;-- gradient without id cannot be used, so ignore it
 			if scope/#href [							;-- inherit attrs from referenced gradient
 				ref: fetch-url scope/#href dict
 				all [ref  not map? :ref/1  fail-at ref]
@@ -895,7 +1027,7 @@ put system/codecs 'svg make object! [
 				map: copy scope
 			]
 			map/type: type
-			;; these must be fixed for each pen at the time of definition:
+			;; these must be saved for each pen (in case we'll need to decode defaults):
 			foreach attr [viewport #font-size] [map/:attr: get-value stack attr]
 			map
 		]
@@ -963,19 +1095,28 @@ put system/codecs 'svg make object! [
 		]
 		
 		emit-pen: function [pen [word!] color [tuple! word! string! none!] stack [block!] dict [map!] /blend opacity [number!]] [
+			;@@ workaround for Draw treating 'pen' as 'fill-pen' for text and ignoring 'fill-pen'
+			;@@ however it doesn't work if pen is defined above the textual element :/
+			all [
+				pen = 'fill-pen
+				scope: stack/-1
+				textual/(scope/element)
+				pen: 'pen
+			]
 			result: only case [
-				color = 'current [reduce [pen get-value stack #color]]
-				;@@ <animate>'s 'fill' attribute conflicts with 'fill' property, so this is to ignore it:
+				;; <animate>'s 'fill' attribute conflicts with 'fill' property, so this is to ignore it:
 				find ["freeze" "remove"] color [copy []]
 				string? color [
 					ref: fetch-url color dict
 					unless all [ref map? :ref/1] [fail-at color]
-					either ref/1/type = 'pattern [
-						emit-pattern  pen ref					;-- pattern uses viewbox transforms from 'ref' 
-					][	emit-gradient pen ref
-					] 
+					either ref/1/type = 'pattern
+						[emit-pattern  pen ref]					;-- pattern uses viewbox transforms from 'ref' 
+						[emit-gradient pen ref]
 				]
-				color [reduce [pen color]]
+				color [
+					#assert [any [tuple? color color = 'off]]
+					reduce [pen color]
+				]
 			]
 			opacity: any [opacity 1]							;@@ use 'default'
 			apply-opacity/deep result opacity * get-total-opacity stack	;-- copies if modifies
@@ -985,7 +1126,6 @@ put system/codecs 'svg make object! [
 			[pen off]			= emit-pen 'pen 'off [] #()
 			[pen 1.2.3]			= emit-pen 'pen 1.2.3 [] #()
 			[]					= emit-pen 'pen none [] #()		;-- unsupported color
-			[fill-pen 2.3.4]	= emit-pen 'fill-pen 'current tail [#(#color 2.3.4)] #()
 			
 			[fill-pen off] = emit-pen 'fill-pen "#grad" []		;-- no stops = no paint
 				#("grad" [#( element: linearGradient type: linear content: [] )])
@@ -1003,7 +1143,7 @@ put system/codecs 'svg make object! [
 			= emit-pen 'pen "#grad" tail [#(#opacity 0.5)]
 				#("grad" [#(
 					element: radialGradient type: radial content: [0.0 10.10.10 1.0 20.20.20]
-					#cx [10 "%"] #cy [20 "%"] #r [130 "%"] #gradientUnits user
+					#cx 10 #cy 20 #r 130 #gradientUnits user
 				)])
 				
 			equal?
@@ -1016,7 +1156,7 @@ put system/codecs 'svg make object! [
 					emit-pen 'pen "#pat" []
 					#("pat" [#(
 						element: pattern type: pattern content: [fill-pen 0.1.2 box (1,1) (2,2)]
-						#width [10 ""] #height [20 ""] #patternUnits user
+						#width 10 #height 20 #patternUnits user
 					)])
 				]
 				
@@ -1069,29 +1209,85 @@ put system/codecs 'svg make object! [
 		rich-text-face: rtd-layout ["X"]
 		rich-text-face/size: none
 		
-		emit-font: function [name [string!] size [float! integer!]] [
-			unless group: font-cache/:name [group: font-cache/:name: make map! 4]
-			unless font: group/:size [
-				font: group/:size: make font! compose [name: (name) size: 72]
+		make-font: function [stack [block!]] [
+			foreach [word attr] [
+				size:   #font-size   name:  #font-family
+				weight: #font-weight style: #font-style
+			][
+				set word maybe-get-value stack attr
+			]
+			style: case [
+				all [weight = 'bold style = 'italic] [copy [bold italic]]
+				weight = 'bold   ['bold]
+				style  = 'italic ['italic]
+			]
+			key: mold reduce [name size style]
+			unless font: font-cache/:key [
+				font-cache/:key: font: make font! compose [name: (name) size: 72]
 				rich-text-face/font: font
 				line-height: second size-text rich-text-face 
 				rich-text-face/font: none
 				font/size: round/to (size * 72 / line-height) 1	;@@ disable rounding once Red supports float size
+				font/style: style
 			]
 			font
 		]
 		
-		;; elements that are not emitted and whose children are never emitted, but an #id may be assigned
-		ignored:		make hash! [defs pattern linearGradient radialGradient #[true]]
+		rich-text!: rtd-layout [""]						;-- used for measurements
+		rich-text!/size: none
 		
-		;; elements that accept 'transform's - https://www.w3.org/TR/SVG11/attindex.html
-		transforming:	make hash! [defs g circle ellipse rect line path polygon polyline #[true]]	;@@ to be extended
+		measure-text: function [stack [block!] text [string!]] [
+			rich-text!/font: get-value stack 'font
+			; ?? rich-text!/font probe copy/part head stack stack 
+			rich-text!/text: text
+			size: size-text rich-text!
+			rich-text!/text: rich-text!/font: none
+			size
+		]
 		
-		;; elements that establish a new viewport (and support viewBox) - https://www.w3.org/TR/SVG11/attindex.html
-		deforming:		make hash! [svg pattern #[true]]		;@@ to be extended
-		
-		;; elements that do not require a 'push []' wrapper
-		flat:			make hash! [stop #[true]]
+		emit-text: function [stack [block!] text [string!]] [
+			;; text offset is shared between text and all children, since children affect the parent
+			text-pos: stack
+			while [not head? text-pos] [				;@@ use 'locate'
+				if text-pos/-1/element = 'text [break]
+				text-pos: back text-pos
+			]
+			text-scope: text-pos/-1
+			scope: stack/-1
+			unless text-scope/offset [					;-- first emitted string
+				foreach [word attr] [x: #x y: #y] [
+					value: get-value/for text-pos attr 'text
+					if other: maybe-get-value/for stack attr scope/element [	;-- allows tspans to override offset
+						value: other
+					]
+					set word any [value/1 0]			;@@ offset is only supported for the whole string atm
+				]
+				text-scope/offset: as-point2D x y
+			]
+			size:   measure-text stack text
+			anchor: get-value stack #text-anchor
+			dir:    get-value stack #direction
+			deco:	get-value stack #text-decoration
+			if dir = 'left [anchor: 1 - anchor]
+			;@@ 80% is a blind guess at baseline location in the line height - needs REP #136
+			vshift: size/y * 80%
+			hshift: anchor * size/x
+			offset: text-scope/offset - as-point2D hshift vshift
+			if deco <> 'none [
+				either find [underline strike] deco [
+					n: length? text
+					text: rtd-layout reduce [text]
+					text/size: none
+					text/font: get-value stack 'font
+					text/data: reduce [as-pair 1 n  deco]
+				][
+					warn ["Text decoration '"deco"' is not supported by Draw"]
+				]
+			]
+			result: compose emit-rules/text!
+			text-scope/offset/x: text-scope/offset/x + size/x
+			result
+		]
 		
 		;; inner elements (content) are added automatically, don't need a mention here
 		;; '?' stands for "no error if no value", 'L' for as-point2D constructor (dialect is preprocessed below)
@@ -1101,7 +1297,7 @@ put system/codecs 'svg make object! [
 			rect		[box  (xy: L#x #y)  (xy + L#width #height)	;@@ box only supports symmetric rounding radius
 						 (
 						 	len: len? any [?#rx ?#ry 0] any [?#ry ?#rx 0]	;-- https://www.w3.org/TR/SVG11/shapes.html#RectElementRYAttribute
-						 	only if len > 0 [len]				;@@ workaround for #5383
+						 	only if len > 0 [len]		;@@ workaround for #5383
 						 )]
 			circle		[circle  (L#cx #cy) (#r)]
 			ellipse		[ellipse (subtract L#cx #cy L#rx #ry) (2 * L#rx #ry)]
@@ -1113,7 +1309,11 @@ put system/codecs 'svg make object! [
 			g			[]
 			svg			[]
 			stop		[(alpha-blend #stop-color #stop-opacity) (1.0 * #offset)]
-			animate		[]										;@@ not supported
+			animate		[]								;@@ not supported
+			text!		[text (offset) (text)]			;-- see 'emit-text'
+			font!		[font (value)]					;-- emits special 'font' attribute, not 'font' SVG element
+			text		[]								;-- these need no special handling
+			tspan		[]								
 			
 			;; at place of definition gradient is emitted as [#(scope) stops...] block, and saved by #id in this form
 			;; at place of insertion it will be formed into a 'pen' command
@@ -1133,7 +1333,11 @@ put system/codecs 'svg make object! [
 			#transform			[]						;-- ignored: see special case in 'emit-element'
 			#stroke				[(emit-pen/blend 'pen      value stack dict any [?#stroke-opacity 1])]
 			#fill				[(emit-pen/blend 'fill-pen value stack dict any [?#fill-opacity   1])]
-			#font-size			[font (emit-font system/view/fonts/system value)]	;@@ add support for font face
+			;; font is saved in scope so it can be accessed later by <text> and <tspan> emitters
+			;; they need it to measure text size, in order to compute offset at the end of the text
+			
+			#font-size			[]						;-- font props are not emitted as is, but gathered into a /font attribute
+			#font-family		[]						;-- /font is required to measure text size, in order to compute offset at its end
 			
 			;; SVG attributes are used by elements, not emitted directly
 			#x [] #y [] #x1 [] #y1 [] #x2 [] #y2 [] #cx [] #cy [] #rx [] #ry [] #r [] #d [] #points [] #width [] #height []
@@ -1157,13 +1361,11 @@ put system/codecs 'svg make object! [
 			foreach [attr value] scope [				;@@ use for-each to filter attr
 				unless issue? attr [continue]
 				any [
-					if rule: emit-rules/:attr [
-						if attr-types/:attr = 'length [value: emit-length value attr stack]
-						compose/into rule tail result
-					]
+					if rule: emit-rules/:attr [compose/into rule tail result]
 					warn ["Unsupported attribute '"attr"' is ignored"]
 				]
 			]
+			if value: scope/font [compose/into emit-rules/font! tail result]
 			
 			;; emit the element
 			any [
@@ -1200,6 +1402,7 @@ put system/codecs 'svg make object! [
 				]]
 				bind template :emit-element
 			]
+			bind emit-rules/text! :emit-text
 		]
 		
 		
@@ -1222,17 +1425,19 @@ put system/codecs 'svg make object! [
 			data  [block!] "Decoded XML markup in 'compact' mode"
 			stack [block!] "Entered elements stack as block of maps"
 			dict  [map!]   "Registered #ids (unique per-file)"
-			/local elem-name attr-ns attr-name attr-data
+			/on canvas [pair! point2D!] "Initial viewport size (defaults to 100x100)"
+			/local elem-name attr-ns attr-name attr-data text
 		][
 			result: make [] 2							;-- [push [element1] push [element2] ...]
 			upper:  any [stack/-1 #()]
 			parse data [any [							;-- accepts any number of elements
 				opt refinement!
 				set elem-name word!
-				ahead block! into [
+				ahead block! into [;source:
 					(
 						stack: enter stack
 						scope: stack/-1
+						if canvas [scope/viewport: to point2D! canvas]
 					)
 					any [								;-- collect attributes before emitting element
 						;; unlike 'transform', 'svg:transform' must be ignored:
@@ -1253,16 +1458,12 @@ put system/codecs 'svg make object! [
 						)
 					|
 						refinement! 2 skip				;-- we don't know how to decode other namespaces, so skip them
-					|
-						'text! skip
 					]
 					inner: to end
 					(
 						scope/element: elem-name
+						; scope/source:  source			;-- used by text
 						decode-attributes stack
-						if deforming/:elem-name [
-							scope/viewport: decode-viewport stack
-						]
 						scope/content: decode inner stack dict
 						elem: emit-element stack dict
 						stack: leave stack
@@ -1275,8 +1476,16 @@ put system/codecs 'svg make object! [
 						]
 					)
 				]
-			|	'text! skip | end | p: (fail-at p)
-			]]
+			|	'text! set text string!
+				(
+					all [
+						scope: stack/-1
+						textual/(scope/element)
+						append result emit-text stack text		;-- uses and modifies scope/offset
+					]
+				)
+			| end | p: (fail-at p)
+			]];parse data [any [
 			result
 		];decode: function [
 		
