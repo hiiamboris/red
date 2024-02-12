@@ -215,7 +215,7 @@ put system/codecs 'svg make object! [
 		]
 		if string? data [data: load-xml/as data 'compact]
 		
-		data: internal/decode/:on data make [] 10 make #() 20 canvas
+		data: internal/decode/:on data make [] 10 make #[] 20 canvas
 		
 		unless empty? data [
 			data: compose/deep/only [
@@ -351,39 +351,39 @@ put system/codecs 'svg make object! [
 		
 		;; percent unit is applied differently to different attributes, so 3 categories here: X, Y (fixed set) and XY (fallback)
 		;@@ to be expanded based on https://www.w3.org/TR/SVG11/attindex.html
-		length-types: #(
+		length-types: #[
 			#x x #x1 x #x2 x #cx x #dx x #fx x #rx x #refx x #width  x #markerwidth  x
 			#y y #y1 y #y2 y #cy y #dy y #fy y #ry y #refy y #height y #markerheight y
-		)
+		]
 		
 		length-type?: func [attr [issue!]] [
 			any [length-types/:attr 'xy]
 		]
 		
 		;; attribute types that use scales from the stack
-		relative:		make hash! [length lengths? #[true]] 
+		relative:		make hash! [length lengths? #(true)] 
 		
 		;; elements that are not emitted and whose children are never emitted, but an #id may be assigned
-		ignored:		make hash! [defs pattern linearGradient radialGradient #[true]]
+		ignored:		make hash! [defs pattern linearGradient radialGradient #(true)]
 		
 		;; elements that accept 'transform's - https://www.w3.org/TR/SVG11/attindex.html
-		transforming:	make hash! [defs g circle ellipse rect line path polygon polyline #[true]]	;@@ to be extended
+		transforming:	make hash! [defs g circle ellipse rect line path polygon polyline #(true)]	;@@ to be extended
 		
 		;; elements that establish a new viewport (and support viewBox) - https://www.w3.org/TR/SVG11/attindex.html
-		deforming:		make hash! [svg pattern #[true]]		;@@ to be extended
+		deforming:		make hash! [svg pattern #(true)]		;@@ to be extended
 		
 		;; elements that do not require a 'push []' wrapper
-		flat:			make hash! [stop #[true]]
+		flat:			make hash! [stop #(true)]
 		
 		;; elements that emit 'text' draw commands (in all other elements text is ignored)
-		textual:		make hash! [text tspan #[true]]
+		textual:		make hash! [text tspan #(true)]
 		
 		;; defaults must be strings - cannot be decoded without context (e.g. 100% has no meaning in a vacuum)
-		defaults: #(
-			all #(										;-- applies to all SVG elements
+		defaults: #[
+			all #[										;-- applies to all SVG elements
 				;; specials
 				content				[]					;-- used by gradients/patterns flattening
-				font				#[none]				;-- reassigned below
+				font				#(none)				;-- reassigned below
 				viewport			(100,100)			;-- arbitrary, to avoid errors ;@@ should be user-provided
 				#font-size			"12"				;-- ditto, reassigned below
 				
@@ -407,28 +407,28 @@ put system/codecs 'svg make object! [
 				;; https://www.w3.org/TR/SVG11/attindex.html - attribute defaults are buried deep in the docs and depend on the element
 				#transform			""
 				#preserveAspectRatio "xMidYMid meet"	;-- https://www.w3.org/TR/SVG11/coords.html#PreserveAspectRatioAttribute
-			)
-			svg		#(#x  "0" #y  "0" #width "100%" #height "100%" #baseProfile "none")
-			use		#(#x  "0" #y  "0")
-			line	#(#x1 "0" #y1 "0" #x2 "0" #y2 "0")
-			rect	#(#x  "0" #y  "0")					;-- 'rx' and 'ry' need special logic
-			circle	#(#cx "0" #cy "0")
-			ellipse	#(#cx "0" #cy "0")
-			radialGradient #(
+			]
+			svg		#[#x  "0" #y  "0" #width "100%" #height "100%" #baseProfile "none"]
+			use		#[#x  "0" #y  "0"]
+			line	#[#x1 "0" #y1 "0" #x2 "0" #y2 "0"]
+			rect	#[#x  "0" #y  "0"]					;-- 'rx' and 'ry' need special logic
+			circle	#[#cx "0" #cy "0"]
+			ellipse	#[#cx "0" #cy "0"]
+			radialGradient #[
 				#cx "50%" #cy "50%" #r "50%" #spreadMethod "pad"
 				#gradientTransform "" #gradientUnits "objectBoundingBox"	;-- 'fx' and 'fy' need special logic
-			)
-			linearGradient #(
+			]
+			linearGradient #[
 				#x1 "0%" #y1 "0%" #x2 "100%" #y2 "0%" #spreadMethod "pad"
 				#gradientTransform "" #gradientUnits "objectBoundingBox"
-			)
-			pattern #(
+			]
+			pattern #[
 				#x "0" #y "0" #width "0" #height "0" #patternTransform ""
 				#patternUnits "objectBoundingBox" #patternContentUnits "userSpaceOnUse"
-			)
-			text  #(#x "0" #y "0"); #dx "" #dy "" #rotate "")
-			tspan #(#x "0" #y "0")
-		)
+			]
+			text  #[#x "0" #y "0"]; #dx "" #dy "" #rotate "")
+			tspan #[#x "0" #y "0"]
+		]
 		;; it's up to us to decide starting color, so OS pen color makes most sense
 		attempt [put defaults/all #color rejoin ["#" enbase/base to binary! system/view/metrics/colors/text 16]]
 		;; for font we can use system default size
@@ -447,7 +447,7 @@ put system/codecs 'svg make object! [
 			#color										;-- used to give value to pen='currentColor'
 			viewport									;-- used to scale percent unit
 			font										;-- used to measure text spans
-			#[true]										;-- this just simplifies lookup by enabling paths
+			#(true)										;-- this just simplifies lookup by enabling paths
 		]
 		
 		;; this is used upon pen emission, assumes that map contains viewport and #font-size - must be set
@@ -519,12 +519,12 @@ put system/codecs 'svg make object! [
 		;;   but viewport cannot be handled here because it's not a single attribute but a mess
 		;; attr is required by lengths where final value depends on element name
 		decoders: make map! [
-			units		[string from #("userSpaceOnUse" user "objectBoundingBox" object)]
-			spread		[string from #("reflect" reflect "repeat" repeat "pad" pad)]
-			linecap		[string from #("butt" flat "square" square "round" round)]
+			units		[string from #["userSpaceOnUse" user "objectBoundingBox" object]]
+			spread		[string from #["reflect" reflect "repeat" repeat "pad" pad]]
+			linecap		[string from #["butt" flat "square" square "round" round]]
 			;; https://www.w3.org/TR/SVG11/painting.html#StrokeProperties
 			;; spec says default miter-limit is 4x so "miter" in SVG => miter-bevel in Draw:
-			linejoin	[string from #("round" round "bevel" bevel "miter" miter-bevel)]
+			linejoin	[string from #["round" round "bevel" bevel "miter" miter-bevel]]
 			transform	[decode-transform   string]
 			aspect		[decode-aspect      string]
 			color		[decode-color       string stack]
@@ -538,10 +538,10 @@ put system/codecs 'svg make object! [
 			font-size	[decode-font-size   string stack]
 			font-family	[decode-font-family string]
 			font-weight	[string from font-weights]
-			font-style	[string from #("normal" normal "italic" italic "oblique" oblique)]
-			text-anchor	[string from #("start" 0.0 "middle" 0.5 "end" 1.0)]
-			text-dir	[string from #("ltr" right "rtl" left)]
-			text-deco	[string from #("none" none "underline" underline "overline" overline "line-through" strike "blink" blink)]
+			font-style	[string from #["normal" normal "italic" italic "oblique" oblique]]
+			text-anchor	[string from #["start" 0.0 "middle" 0.5 "end" 1.0]]
+			text-dir	[string from #["ltr" right "rtl" left]]
+			text-deco	[string from #["none" none "underline" underline "overline" overline "line-through" strike "blink" blink]]
 		]
 		hide [
 			foreach [type body] decoders [				;@@ use map-each
@@ -549,7 +549,7 @@ put system/codecs 'svg make object! [
 			]
 		]
 		
-		attr-types: #(
+		attr-types: #[
 			;; #x/y/dx/dy have conflicting syntaxes: multiple lengths in <text>, single in shapes
 			#x lengths? #y lengths? #dx lengths? #dy lengths?
 			#x1 length #x2 length #cx length #fx length #rx length #refx length #width  length #markerwidth  length
@@ -586,7 +586,7 @@ put system/codecs 'svg make object! [
 			#text-anchor			text-anchor
 			#direction				text-dir
 			#text-decoration		text-deco
-		)
+		]
 		
 		decode-attr: func [string [string!] stack [block!] attr [issue!]] [
 			decoder: any [:decoders/(attr-types/:attr) :return]	;-- return = fallback to no decoding
@@ -674,16 +674,16 @@ put system/codecs 'svg make object! [
 		]
 		
 		#assert [
-			0  = decode-length "0"       tail [#(element: svg viewport: (30,20) #font-size 10)] #x
-			1  = decode-length "1"       tail [#(element: svg viewport: (30,20) #font-size 10)] #x
-			1  = decode-length "1px"     tail [#(element: svg viewport: (30,20) #font-size 10)] #x
-			1  = decode-length "1.0px"   tail [#(element: svg viewport: (30,20) #font-size 10)] #x
-			32 = decode-length " 2.0pc " tail [#(element: svg viewport: (30,20) #font-size 10)] #x
-			96 = decode-length "1in"     tail [#(element: svg viewport: (30,20) #font-size 10)] #x
-			3  = decode-length "10%"     tail [#(element: svg viewport: (30,20) #font-size 10)] #x
-			2  = decode-length "10%"     tail [#(element: svg viewport: (30,20) #font-size 10)] #y
-			5  = decode-length "0.5em"   tail [#(element: svg viewport: (30,20) #font-size 10)] #x
-			3  = decode-length "10%"     tail [#(element: svg viewport: (30,30) #font-size 10)] #xy
+			0  = decode-length "0"       tail [#[element: svg viewport: (30,20) #font-size 10]] #x
+			1  = decode-length "1"       tail [#[element: svg viewport: (30,20) #font-size 10]] #x
+			1  = decode-length "1px"     tail [#[element: svg viewport: (30,20) #font-size 10]] #x
+			1  = decode-length "1.0px"   tail [#[element: svg viewport: (30,20) #font-size 10]] #x
+			32 = decode-length " 2.0pc " tail [#[element: svg viewport: (30,20) #font-size 10]] #x
+			96 = decode-length "1in"     tail [#[element: svg viewport: (30,20) #font-size 10]] #x
+			3  = decode-length "10%"     tail [#[element: svg viewport: (30,20) #font-size 10]] #x
+			2  = decode-length "10%"     tail [#[element: svg viewport: (30,20) #font-size 10]] #y
+			5  = decode-length "0.5em"   tail [#[element: svg viewport: (30,20) #font-size 10]] #x
+			3  = decode-length "10%"     tail [#[element: svg viewport: (30,30) #font-size 10]] #xy
 		]
 		
 		decode-lengths: function [string [string!] stack [block!] attr [issue!]] [	;-- zero or more numbers with units
@@ -695,7 +695,7 @@ put system/codecs 'svg make object! [
 		]
 		
 		#assert [
-			[3 1] = decode-lengths "10% 1px" tail [#(element: svg viewport: (30,20))] #x
+			[3 1] = decode-lengths "10% 1px" tail [#[element: svg viewport: (30,20)]] #x
 		]
 		
 		;; workaround for #x and #y attributes having different formats across elements
@@ -729,13 +729,13 @@ put system/codecs 'svg make object! [
 		]
 		
 		#assert [
-			255.255.255 = decode-color "#FfF"         tail [#(#color 2.3.4)]
-			255.255.255 = decode-color "#fFFffF"      tail [#(#color 2.3.4)]
-			1.2.3       = decode-color "rgb(1,2,3)"   tail [#(#color 2.3.4)]
-			0.0.0       = decode-color "black"        tail [#(#color 2.3.4)]
-			'off        = decode-color "none"         tail [#(#color 2.3.4)]
-			2.3.4       = decode-color "currentColor" tail [#(#color 2.3.4)]
-			"#ref"      = decode-color "url(#ref)"    tail [#(#color 2.3.4)]
+			255.255.255 = decode-color "#FfF"         tail [#[#color 2.3.4]]
+			255.255.255 = decode-color "#fFFffF"      tail [#[#color 2.3.4]]
+			1.2.3       = decode-color "rgb(1,2,3)"   tail [#[#color 2.3.4]]
+			0.0.0       = decode-color "black"        tail [#[#color 2.3.4]]
+			'off        = decode-color "none"         tail [#[#color 2.3.4]]
+			2.3.4       = decode-color "currentColor" tail [#[#color 2.3.4]]
+			"#ref"      = decode-color "url(#ref)"    tail [#[#color 2.3.4]]
 		]
 		
 		;; https://www.w3.org/TR/SVG11/implnote.html#ErrorProcessing prescribes to:
@@ -842,8 +842,8 @@ put system/codecs 'svg make object! [
 			[move (10, 2) line (3, 4)]  = quiet [decode-path {M 1e1,2,3e+0 4e-0error}]
 		]
 		
-		shift-factors: #(
-			none		#[none]
+		shift-factors: #[
+			none		#(none)
 			XMinYMin	(0.0, 0.0)
 			XMidYMin	(0.5, 0.0)
 			XMaxYMin	(1.0, 0.0)
@@ -853,7 +853,7 @@ put system/codecs 'svg make object! [
 			XMinYMax	(0.0, 1.0)
 			XMidYMax	(0.5, 1.0)
 			XMaxYMax	(1.0, 1.0)
-		)
+		]
 		
 		decode-aspect: function [string [string!] /local slice?] [	;-- returns: [shift-factor(point/none) fit?(logic)]
 			parse string [
@@ -866,9 +866,9 @@ put system/codecs 'svg make object! [
 		]
 		
 		#assert [
-			[#[none]  #[true] ] = decode-aspect "none"
-			[(1, 0)   #[true] ] = decode-aspect "xMaxYMin meet"
-			[(0, 0.5) #[false]] = decode-aspect "xMinYMid slice"
+			[#(none)  #(true) ] = decode-aspect "none"
+			[(1, 0)   #(true) ] = decode-aspect "xMaxYMin meet"
+			[(0, 0.5) #(false)] = decode-aspect "xMinYMid slice"
 		]
 		
 		decode-transform: function [string [string!] /local cmd] [
@@ -935,13 +935,13 @@ put system/codecs 'svg make object! [
 			]
 		]
 		
-		generic-fonts: #(
+		generic-fonts: #[
 			"serif"			serif
 			"sans-serif"	sans-serif
 			"cursive"		serif
 			"fantasy"		serif
 			"monospace"		fixed
-		)
+		]
 			
 		;@@ without REP #139 there's no way to know if given font is supported,
 		;@@ so we can only blindly choose the first of given alternatives and hope for the best
@@ -957,7 +957,7 @@ put system/codecs 'svg make object! [
 		]
 		
 		;; numbers come from a set, so I wonder what those trailing zeroes are for :/
-		font-weights: #(
+		font-weights: #[
 			"normal"	normal
 			"bold"		bold
 			"bolder"	bold
@@ -971,7 +971,7 @@ put system/codecs 'svg make object! [
 			"700"		bold							;-- normative weight for 'bold' is 700
 			"800"		bold
 			"900"		bold
-		)
+		]
 		
 		compute-viewport: function [stack [block!]] [
 			scope: stack/-1
@@ -1123,28 +1123,28 @@ put system/codecs 'svg make object! [
 		]
 		
 		#assert [
-			[pen off]			= emit-pen 'pen 'off [] #()
-			[pen 1.2.3]			= emit-pen 'pen 1.2.3 [] #()
-			[]					= emit-pen 'pen none [] #()		;-- unsupported color
+			[pen off]			= emit-pen 'pen 'off [] #[]
+			[pen 1.2.3]			= emit-pen 'pen 1.2.3 [] #[]
+			[]					= emit-pen 'pen none [] #[]		;-- unsupported color
 			
 			[fill-pen off] = emit-pen 'fill-pen "#grad" []		;-- no stops = no paint
-				#("grad" [#( element: linearGradient type: linear content: [] )])
+				#["grad" [#[ element: linearGradient type: linear content: [] ]]]
 				
 			[fill-pen 1.1.1] = emit-pen 'fill-pen "#grad" []	;-- single stop = monochrome paint
-				#("grad" [#( element: linearGradient type: linear content: [0.0 1.1.1] )])
+				#["grad" [#[ element: linearGradient type: linear content: [0.0 1.1.1] ]]]
 				
 			[fill-pen linear 0.0 10.10.10 1.0 20.20.20 pad]
 			= emit-pen 'fill-pen "#grad" []
-				#("grad" [#(
+				#["grad" [#[
 					element: linearGradient type: linear content: [0.0 10.10.10 1.0 20.20.20]
-				)])
+				]]]
 				
 			[pen radial 0.0 10.10.10.128 1.0 20.20.20.128 (10,20) 130.0 (10,20) pad]
-			= emit-pen 'pen "#grad" tail [#(#opacity 0.5)]
-				#("grad" [#(
+			= emit-pen 'pen "#grad" tail [#[#opacity 0.5]]
+				#["grad" [#[
 					element: radialGradient type: radial content: [0.0 10.10.10 1.0 20.20.20]
 					#cx 10 #cy 20 #r 130 #gradientUnits user
-				)])
+				]]]
 				
 			equal?
 				compose/deep [
@@ -1154,10 +1154,10 @@ put system/codecs 'svg make object! [
 				]
 				quiet [
 					emit-pen 'pen "#pat" []
-					#("pat" [#(
+					#["pat" [#[
 						element: pattern type: pattern content: [fill-pen 0.1.2 box (1,1) (2,2)]
 						#width 10 #height 20 #patternUnits user
-					)])
+					]]]
 				]
 				
 			; [pen off] = emit-pen 'pen "#invalid" [] #()		;@@ is this valid??
@@ -1429,7 +1429,7 @@ put system/codecs 'svg make object! [
 			/local elem-name attr-ns attr-name attr-data text
 		][
 			result: make [] 2							;-- [push [element1] push [element2] ...]
-			upper:  any [stack/-1 #()]
+			upper:  any [stack/-1 #[]]
 			parse data [any [							;-- accepts any number of elements
 				opt refinement!
 				set elem-name word!
